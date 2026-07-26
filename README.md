@@ -1,135 +1,82 @@
-# 🍔 **Food Delivery App Backend Ktor**
+# Food Delivery Ktor Backend
 
-Welcome to the **Food Delivery App Backend**! This project is a robust backend built with **Ktor** and designed to power a food delivery ecosystem comprising three main applications:
+Kotlin/Ktor backend for the FoodHub food-delivery system. It provides authentication, restaurant and menu management, carts, orders, payments, notifications, image storage, rider workflows, and WebSocket location tracking.
 
-1. **Customer App**: For users to explore restaurants, view menu items, place orders, and track deliveries.
-2. **Rider App**: For delivery personnel to manage and update order statuses and share live locations.
-3. **Restaurant App**: For restaurant owners to manage their listings, update order statuses, and oversee operations.
+## Requirements
 
-This backend is scalable, modular, and optimized for real-world deployment scenarios.
+- JDK 17
+- MySQL 8.x
+- Git
+- Optional: IntelliJ IDEA or Android Studio with Kotlin support
 
----
+The repository includes the Gradle wrapper, so team members do not need to install Gradle separately.
 
-## 🏗️ **Project Structure**
+## Set up on a team member's computer
 
-The backend follows a clean and modular structure:
+1. Clone and enter the repository:
 
-- `configs/`
-  - Contains configuration files.
-- `database/`
-  - Includes database models and table definitions.
-- `models/`
-  - Houses data classes used for JSON serialization and business logic.
-- `routes/`
-  - Defines routes for handling API endpoints for various features.
-- `services/`
-  - Contains the core business logic and operations.
-- `utils/`
-  - Provides utility functions like error handling and helper methods.
-- `Application.kt`
-  - The entry point for the Ktor application.
-
-## 🛠️ **Key Features**
-
-### **1. Authentication**
-- **Email and Password Login**: Secure authentication using hashed passwords.
-- **OAuth Support**: Google and Facebook login integration.
-- **JWT-based Authentication**: Stateless and secure token-based authorization.
-
-### **2. Categories**
-- Add and manage categories for restaurant menus (e.g., Fast Food, Desserts, Beverages).
-- Preloaded with commonly used categories.
-
-### **3. Restaurants**
-- Add restaurants with the following details:
-  - **Name**
-  - **Address**
-  - **Geolocation** (latitude, longitude)
-  - **Associated category**
-- Fetch restaurants based on proximity to the user (within a 5km radius).
-
-### **4. Menu Items**
-- Manage menu items for restaurants:
-  - **Name**
-  - **Description**
-  - **Price**
-  - **Optional AR metadata** for immersive product viewing.
-
-### **5. Orders**
-- Handle order placements:
-  - **Customer details**
-  - **Restaurant details**
-  - **List of menu items**
-- Manage order statuses:
-  - Pending → Preparing → Ready → Picked Up → Delivered.
-
-### **6. Live Location Tracking**
-- **Rider Location Sharing**: Real-time tracking using websockets for live updates.
-- **Customer View**: Track delivery progress on a map.
-
-### **7. Reviews**
-- Customers can leave ratings and reviews for orders.
-## 🛠️ **Tech Stack**
-
-### **Backend**
-- **Ktor**: Fast and lightweight Kotlin framework for backend development.
-- **Exposed**: ORM library for database operations.
-- **Kotlin**: For clean, concise, and expressive code.
-
-### **Database**
-- **MySQL**: Reliable and scalable relational database.
-- **Spatial Data Support**: Geolocation-based queries for restaurants.
-
-### **Authentication**
-- **JWT**: For secure and stateless session management.
-- **OAuth**: Google and Facebook login support.
-
----
-
-## 🚀 **Getting Started**
-
-### **Prerequisites**
-- **Kotlin 1.8+**
-- **MySQL**
-- **Gradle**
-
-### **Setup**
-
-1. **Clone the repository**:
    ```bash
-   git clone https://github.com/your-username/food-delivery-backend.git
-   cd food-delivery-backend
-2. **Start the Ktor server:**:
+   git clone <FOOD_DELIVERY_KTOR_REPOSITORY_URL>
+   cd food_delivery_ktor
+   ```
+
+2. Create a local MySQL database:
+
+   ```sql
+   CREATE DATABASE food_delivery CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+   CREATE USER 'foodhub'@'localhost' IDENTIFIED BY 'choose-a-local-password';
+   GRANT ALL PRIVILEGES ON food_delivery.* TO 'foodhub'@'localhost';
+   FLUSH PRIVILEGES;
+   ```
+
+3. Configure the database connection for your machine. The current code reads the JDBC URL, username, and password in `src/main/kotlin/com/codewithfk/database/DatabaseFactory.kt`. Use your own local values and never commit passwords. A follow-up improvement should move all three values to environment variables.
+4. Configure optional integrations only if the feature is needed:
+
+   - `STRIPE_API_KEY`: Stripe secret key used by payment code
+   - `src/main/kotlin/com/codewithfk/configs/SupabaseConfig.kt`: Supabase URL and key for image storage
+   - `src/main/kotlin/com/codewithfk/configs/GoogleConfigs.kt`: Google Maps key
+   - Firebase Admin service-account JSON: keep it outside Git; the expected service-account filename is ignored by `.gitignore`
+
+5. Start the server:
+
+   macOS or Linux:
+
    ```bash
-   ./gradlew run  
-3. **The server will be running at http://localhost:8080.**
+   ./gradlew run
+   ```
 
+   Windows:
 
-## 📚 **Endpoints Overview**
+   ```powershell
+   .\gradlew.bat run
+   ```
 
-### **Authentication**
-| Method | Endpoint         | Description                       |
-|--------|------------------|-----------------------------------|
-| POST   | `/auth/register` | Register a new user              |
-| POST   | `/auth/login`    | Login with email and password    |
-| POST   | `/auth/oauth`    | Login with Google or Facebook    |
+6. Verify that the API is listening at `http://localhost:8080`.
 
-### **Categories**
-| Method | Endpoint          | Description                     |
-|--------|-------------------|---------------------------------|
-| GET    | `/categories`     | Fetch all categories           |
-| POST   | `/categories`     | Add a new category (Admin)     |
+The application creates missing database tables during startup. Review seed and migration behavior before connecting it to a shared or production database.
 
-### **Restaurants**
-| Method | Endpoint               | Description                                       |
-|--------|------------------------|---------------------------------------------------|
-| GET    | `/restaurants`         | Fetch all restaurants near a location            |
-| GET    | `/restaurants/{id}`    | Fetch details of a specific restaurant           |
-| POST   | `/restaurants`         | Add a new restaurant (Owner/Admin)               |
+## Android client connection
 
-### **Orders**
-| Method | Endpoint               | Description                                  |
-|--------|------------------------|----------------------------------------------|
-| POST   | `/orders`              | Place a new order                           |
-| GET    | `/orders/{id}`         | Fetch details of a specific order           |
-| PATCH  | `/orders/{id}/status`  | Update the status of an order               |
+The FoodHub Android emulator reaches this server at `http://10.0.2.2:8080/`. A physical device must use the development computer's LAN IP address and both devices must be on the same network.
+
+## Useful commands
+
+```bash
+./gradlew test
+./gradlew build
+./gradlew run
+```
+
+## Security checklist
+
+- Never commit database passwords, Stripe keys, Supabase keys, Google Maps keys, JWT secrets, or Firebase service-account JSON.
+- Use separate credentials for each developer and environment.
+- Replace the placeholder JWT secret before any shared deployment.
+- Keep `local.properties`, `.idea`, `.gradle`, and `build` out of Git.
+- Rotate any credential immediately if it has ever been committed or shared publicly.
+
+## Team workflow
+
+- Keep the default branch deployable.
+- Work in short-lived feature branches.
+- Open a pull request and request review before merging.
