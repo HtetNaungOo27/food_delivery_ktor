@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.ktor)
     id("org.jetbrains.kotlin.plugin.serialization") version "1.5.21"
+//    kotlin("jvm")
 }
 
 group = "com.codewithfk"
@@ -75,5 +76,9 @@ dependencies {
     
     // Fix Firebase dependency issue
     implementation("com.google.guava:guava:32.1.2-jre")
+    implementation(kotlin("stdlib-jdk8"))
 
+}
+kotlin {
+    jvmToolchain(17)
 }
