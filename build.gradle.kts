@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.ktor)
     id("org.jetbrains.kotlin.plugin.serialization") version "1.5.21"
 //    kotlin("jvm")
+//    kotlin("jvm")
 }
 
 group = "com.codewithfk"
@@ -81,4 +82,5 @@ dependencies {
 }
 kotlin {
     jvmToolchain(17)
+    jvmToolchain(8)
 }

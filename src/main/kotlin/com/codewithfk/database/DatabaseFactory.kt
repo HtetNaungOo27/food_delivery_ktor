@@ -13,7 +13,7 @@ object DatabaseFactory {
     fun init() {
         val driverClassName = "com.mysql.cj.jdbc.Driver"
         val jdbcURL = "jdbc:mysql://localhost:3306/food_delivery"
-        val user = "root"
+        val user = "foodhub"
         val password = "root"
 
         try {
