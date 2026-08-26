@@ -58,21 +58,5 @@ fun Route.orderRoutes() {
             }
         }
 
-        /**
-         * Update order status
-         */
-        patch("/{id}/status") {
-            val orderId = call.parameters["id"] ?: return@patch call.respondError(
-                HttpStatusCode.BadRequest,
-                "Order ID is required."
-            )
-            val params = call.receive<Map<String, String>>()
-            val status =
-                params["status"] ?: return@patch call.respondError(HttpStatusCode.BadRequest, "Status is required.")
-
-            val success = OrderService.updateOrderStatus(UUID.fromString(orderId), status)
-            if (success) call.respond(mapOf("message" to "Order status updated successfully"))
-            else call.respondError(HttpStatusCode.NotFound, "Order not found")
-        }
     }
 }

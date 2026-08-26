@@ -29,24 +29,6 @@ fun Route.restaurantOwnerRoutes() {
                 call.respond(mapOf("orders" to orders))
             }
 
-            // Update order status
-            patch("/orders/{orderId}/status") {
-                val ownerId = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString()
-                    ?: return@patch call.respondError(HttpStatusCode.Unauthorized, "Unauthorized")
-                
-                val orderId = call.parameters["orderId"] ?: return@patch call.respondError(
-                    HttpStatusCode.BadRequest,
-                    "Order ID is required"
-                )
-                
-                val request = call.receive<UpdateOrderStatusRequest>()
-                OrderService.updateOrderStatus(
-                    orderId = UUID.fromString(orderId),
-                    status = request.status
-                )
-                call.respond(mapOf("message" to "Order status updated successfully"))
-            }
-
             // Get restaurant statistics
             get("/statistics") {
                 val ownerId = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString()
@@ -85,6 +67,22 @@ fun Route.restaurantOwnerRoutes() {
                 } else {
                     call.respondError(HttpStatusCode.NotFound, "Restaurant not found")
                 }
+            }
+
+            patch("/menu/{itemId}") {
+                val ownerId = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString()
+                    ?: return@patch call.respondError(HttpStatusCode.Unauthorized, "Unauthorized")
+                val itemId = call.parameters["itemId"]
+                    ?: return@patch call.respondError(HttpStatusCode.BadRequest, "Menu item ID is required")
+                val request = call.receive<UpdateMenuItemRequest>()
+                if (request.name?.isBlank() == true || request.description?.isBlank() == true || request.price?.let { it <= 0 } == true) {
+                    return@patch call.respondError(HttpStatusCode.BadRequest, "Enter a valid name, description, and price")
+                }
+                val updated = RestaurantOwnerService.updateOwnedMenuItem(
+                    UUID.fromString(ownerId), UUID.fromString(itemId), request
+                )
+                if (updated) call.respond(mapOf("message" to "Menu item updated successfully"))
+                else call.respondError(HttpStatusCode.NotFound, "Menu item not found for this restaurant")
             }
 
             // Accept/Reject order
@@ -127,10 +125,15 @@ fun Route.restaurantOwnerRoutes() {
                 try {
                     // Validate status transition
                     val validTransitions = mapOf(
+                        OrderStatus.PENDING_ACCEPTANCE.name to OrderStatus.ACCEPTED.name,
                         OrderStatus.ACCEPTED.name to OrderStatus.PREPARING.name,
-                        OrderStatus.PREPARING.name to OrderStatus.READY.name,
-                        OrderStatus.READY.name to OrderStatus.OUT_FOR_DELIVERY.name
+                        OrderStatus.PREPARING.name to OrderStatus.READY.name
                     )
+
+                    val ownerOrders = RestaurantOwnerService.getRestaurantOrders(UUID.fromString(ownerId))
+                    if (ownerOrders.none { it.id == orderId }) {
+                        return@patch call.respondError(HttpStatusCode.Forbidden, "This order does not belong to your restaurant")
+                    }
                     
                     // Get current order status
                     val currentStatus = OrderService.getOrderDetails(UUID.fromString(orderId)).status
@@ -153,4 +156,4 @@ fun Route.restaurantOwnerRoutes() {
             }
         }
     }
-} 
+}

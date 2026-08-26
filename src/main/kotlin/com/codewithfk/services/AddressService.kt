@@ -21,6 +21,8 @@ object AddressService {
                 it[country] = address.country
                 it[latitude] = address.latitude
                 it[longitude] = address.longitude
+                it[landmark] = address.landmark
+                it[plusCode] = address.plusCode
             } get AddressesTable.id
         }
     }
@@ -39,7 +41,9 @@ object AddressService {
                         zipCode = it[AddressesTable.zipCode],
                         country = it[AddressesTable.country],
                         latitude = it[AddressesTable.latitude],
-                        longitude = it[AddressesTable.longitude]
+                        longitude = it[AddressesTable.longitude],
+                        landmark = it[AddressesTable.landmark],
+                        plusCode = it[AddressesTable.plusCode]
                     )
                 }
         }
@@ -56,6 +60,8 @@ object AddressService {
                 it[country] = updatedAddress.country
                 it[latitude] = updatedAddress.latitude
                 it[longitude] = updatedAddress.longitude
+                it[landmark] = updatedAddress.landmark
+                it[plusCode] = updatedAddress.plusCode
             } > 0
         }
     }
@@ -80,7 +86,9 @@ object AddressService {
                         zipCode = it[AddressesTable.zipCode],
                         country = it[AddressesTable.country],
                         latitude = it[AddressesTable.latitude],
-                        longitude = it[AddressesTable.longitude]
+                        longitude = it[AddressesTable.longitude],
+                        landmark = it[AddressesTable.landmark],
+                        plusCode = it[AddressesTable.plusCode]
                     )
                 }.singleOrNull()
         }
@@ -100,4 +108,4 @@ object AddressService {
             } get AddressesTable.id
         }
     }
-} 
+}

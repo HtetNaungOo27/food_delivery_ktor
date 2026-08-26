@@ -138,6 +138,19 @@ fun Route.riderRoutes() {
                 val activeDeliveries = RiderService.getActiveDeliveries(UUID.fromString(riderId))
                 call.respond(mapOf("data" to activeDeliveries))
             }
+
+            get("/wallet") {
+                val riderId = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString()
+                    ?: return@get call.respondError(HttpStatusCode.Unauthorized, "Unauthorized")
+                call.respond(RiderService.getWallet(UUID.fromString(riderId)))
+            }
+
+            post("/wallet/settle") {
+                val riderId = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString()
+                    ?: return@post call.respondError(HttpStatusCode.Unauthorized, "Unauthorized")
+                val settled = RiderService.settleWallet(UUID.fromString(riderId))
+                call.respond(mapOf("message" to if (settled) "Wallet settled" else "No cash to settle"))
+            }
         }
     }
-} 
+}

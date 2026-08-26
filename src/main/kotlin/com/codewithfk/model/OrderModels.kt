@@ -4,7 +4,8 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class PlaceOrderRequest(
-    val addressId: String
+    val addressId: String,
+    val paymentMethod: String = "CARD"
 )
 
 @Serializable
@@ -16,6 +17,8 @@ data class Order(
     val address: Address?,
     val status: String,
     val paymentStatus: String,
+    val paymentMethod: String = "CARD",
+    val codCollected: Boolean = false,
     val stripePaymentIntentId: String?,
     val totalAmount: Double,
     val items: List<OrderItem>? = null,

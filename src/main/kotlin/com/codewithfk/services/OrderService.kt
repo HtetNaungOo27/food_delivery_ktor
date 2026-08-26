@@ -84,6 +84,8 @@ object OrderService {
                 it[this.totalAmount] = totalAmount
                 it[this.status] = OrderStatus.PENDING_ACCEPTANCE.name
                 it[this.paymentStatus] = if (paymentIntentId != null) "Paid" else "Pending"
+                it[this.paymentMethod] = request.paymentMethod.uppercase()
+                it[this.codCollected] = false
                 it[this.stripePaymentIntentId] = paymentIntentId
                 it[this.riderId] = null
             } get OrdersTable.id
@@ -141,6 +143,8 @@ object OrderService {
                         address = address,
                         status = orderRow[OrdersTable.status],
                         paymentStatus = orderRow[OrdersTable.paymentStatus],
+                        paymentMethod = orderRow[OrdersTable.paymentMethod],
+                        codCollected = orderRow[OrdersTable.codCollected],
                         stripePaymentIntentId = orderRow[OrdersTable.stripePaymentIntentId],
                         totalAmount = orderRow[OrdersTable.totalAmount],
                         items = items,
@@ -176,6 +180,8 @@ object OrderService {
                 address = getOrderAddress(order[OrdersTable.addressId]),
                 status = order[OrdersTable.status],
                 paymentStatus = order[OrdersTable.paymentStatus],
+                paymentMethod = order[OrdersTable.paymentMethod],
+                codCollected = order[OrdersTable.codCollected],
                 stripePaymentIntentId = order[OrdersTable.stripePaymentIntentId],
                 totalAmount = order[OrdersTable.totalAmount],
                 items = getOrderItems(orderId),
@@ -227,6 +233,8 @@ object OrderService {
                         riderId = row[OrdersTable.riderId]?.toString(),
                         status = row[OrdersTable.status],
                         paymentStatus = row[OrdersTable.paymentStatus],
+                        paymentMethod = row[OrdersTable.paymentMethod],
+                        codCollected = row[OrdersTable.codCollected],
                         stripePaymentIntentId = row[OrdersTable.stripePaymentIntentId],
                         totalAmount = row[OrdersTable.totalAmount],
                         createdAt = row[OrdersTable.createdAt].toString(),

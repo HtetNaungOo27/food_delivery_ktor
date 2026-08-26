@@ -12,6 +12,24 @@ import org.jetbrains.exposed.sql.DoubleColumnType
 import org.jetbrains.exposed.sql.ExpressionAlias
 
 object RestaurantOwnerService {
+    fun updateOwnedMenuItem(ownerId: UUID, itemId: UUID, request: UpdateMenuItemRequest): Boolean = transaction {
+        val belongsToOwner = (MenuItemsTable innerJoin RestaurantsTable)
+            .select {
+                (MenuItemsTable.id eq itemId) and (RestaurantsTable.ownerId eq ownerId)
+            }
+            .any()
+        if (!belongsToOwner) return@transaction false
+
+        MenuItemsTable.update({ MenuItemsTable.id eq itemId }) { row ->
+            request.name?.let { row[MenuItemsTable.name] = it }
+            request.description?.let { row[MenuItemsTable.description] = it }
+            request.price?.let { row[MenuItemsTable.price] = it }
+            request.imageUrl?.let { row[MenuItemsTable.imageUrl] = it }
+            request.category?.let { row[MenuItemsTable.category] = it }
+            request.isAvailable?.let { row[MenuItemsTable.isAvailable] = it }
+        } > 0
+    }
+
     fun getRestaurantOrders(ownerId: UUID, status: String? = null): List<Order> {
         return transaction {
             val query = (OrdersTable
@@ -54,7 +72,9 @@ object RestaurantOwnerService {
                             zipCode = row[AddressesTable.zipCode],
                             country = row[AddressesTable.country],
                             latitude = row[AddressesTable.latitude],
-                            longitude = row[AddressesTable.longitude]
+                            longitude = row[AddressesTable.longitude],
+                            landmark = row[AddressesTable.landmark],
+                            plusCode = row[AddressesTable.plusCode]
                         )
                     } else null
 
@@ -65,6 +85,8 @@ object RestaurantOwnerService {
                         address = address,
                         status = row[OrdersTable.status],
                         paymentStatus = row[OrdersTable.paymentStatus],
+                        paymentMethod = row[OrdersTable.paymentMethod],
+                        codCollected = row[OrdersTable.codCollected],
                         stripePaymentIntentId = row[OrdersTable.stripePaymentIntentId],
                         totalAmount = row[OrdersTable.totalAmount],
                         items = items,
@@ -99,7 +121,7 @@ object RestaurantOwnerService {
             val orders = OrdersTable
                 .select { 
                     (OrdersTable.restaurantId eq restaurantId) and
-                    (OrdersTable.status inList listOf("Delivered", "Completed"))
+                    (OrdersTable.status inList listOf(OrderStatus.DELIVERED.name))
                 }
                 .toList()
 
@@ -207,4 +229,4 @@ object RestaurantOwnerService {
             } > 0
         }
     }
-} 
+}

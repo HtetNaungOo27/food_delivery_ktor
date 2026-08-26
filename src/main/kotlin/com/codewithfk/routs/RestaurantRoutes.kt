@@ -1,6 +1,8 @@
 package com.codewithfk.routs
 
 import com.codewithfk.services.RestaurantService
+import com.codewithfk.services.ReviewService
+import com.codewithfk.model.ReviewRequest
 import com.codewithfk.utils.respondError
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -84,6 +86,34 @@ fun Route.restaurantRoutes() {
                 ?: return@get call.respondError("Restaurant not found.", HttpStatusCode.NotFound)
 
             call.respond(HttpStatusCode.OK, mapOf("data" to restaurant))
+        }
+
+        get("/{id}/reviews") {
+            val id = call.parameters["id"]
+                ?: return@get call.respondError("Restaurant ID is required.", HttpStatusCode.BadRequest)
+            val restaurantId = runCatching { UUID.fromString(id) }.getOrNull()
+                ?: return@get call.respondError("Invalid restaurant ID.", HttpStatusCode.BadRequest)
+            call.respond(HttpStatusCode.OK, ReviewService.getReviews(restaurantId))
+        }
+
+        authenticate {
+            post("/{id}/reviews") {
+                val userId = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString()
+                    ?: return@post call.respondError("Unauthorized.", HttpStatusCode.Unauthorized)
+                val restaurantId = runCatching { UUID.fromString(call.parameters["id"]) }.getOrNull()
+                    ?: return@post call.respondError("Invalid restaurant ID.", HttpStatusCode.BadRequest)
+                val request = call.receive<ReviewRequest>()
+                try {
+                    call.respond(
+                        HttpStatusCode.OK,
+                        ReviewService.saveReview(UUID.fromString(userId), restaurantId, request.rating, request.comment)
+                    )
+                } catch (error: IllegalArgumentException) {
+                    call.respondError(error.message ?: "Invalid review.", HttpStatusCode.BadRequest)
+                } catch (error: IllegalStateException) {
+                    call.respondError(error.message ?: "Unable to save review.", HttpStatusCode.NotFound)
+                }
+            }
         }
     }
 }

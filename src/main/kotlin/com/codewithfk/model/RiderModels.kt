@@ -52,7 +52,8 @@ data class AvailableDelivery(
     val orderAmount: Double,
     val estimatedDistance: Double,
     val estimatedEarning: Double,
-    val createdAt: String
+    val createdAt: String,
+    val paymentMethod: String = "CARD"
 )
 
 @Serializable
@@ -71,6 +72,15 @@ enum class DeliveryStatus {
 }
 
 @Serializable
+data class RiderWallet(
+    val completedDeliveries: Int,
+    val deliveryEarnings: Double,
+    val cashCollected: Double,
+    val amountToSettle: Double,
+    val lastSettlementMessage: String = "Settle collected cash with SwiftBite"
+)
+
+@Serializable
 data class RiderDelivery(
     val orderId: String,
     val status: String,
@@ -80,7 +90,8 @@ data class RiderDelivery(
     val totalAmount: Double,
     val estimatedEarning: Double,
     val createdAt: String,
-    val updatedAt: String
+    val updatedAt: String,
+    val paymentMethod: String = "CARD"
 )
 
 @Serializable
@@ -101,7 +112,9 @@ data class CustomerAddress(
     val state: String? = null,
     val zipCode: String,
     val latitude: Double,
-    val longitude: Double
+    val longitude: Double,
+    val landmark: String? = null,
+    val plusCode: String? = null
 )
 
 @Serializable
@@ -110,4 +123,4 @@ data class OrderItemDetail(
     val name: String,
     val quantity: Int,
     val price: Double
-) 
+)

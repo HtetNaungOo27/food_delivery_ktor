@@ -46,11 +46,22 @@ fun Route.authRoutes() {
 
         val packageName = call.request.header("X-Package-Name")
 
-        val userType = when(packageName){
-            "com.codewithfk.foodhub" -> UserRole.CUSTOMER
-            "com.codewithfk.foodhub.restaurant" -> UserRole.OWNER
-            "com.codewithfk.foodhub.rider" -> UserRole.RIDER
-            else -> UserRole.CUSTOMER
+        val userType = when (packageName) {
+            "com.example.foodhub_android" ->
+                UserRole.CUSTOMER
+
+            "com.example.foodhub_android.restaurant" ->
+                UserRole.OWNER
+
+            "com.example.foodhub_android.rider" ->
+                UserRole.RIDER
+
+            else -> {
+                return@post call.respondText(
+                    text = "Unknown application package",
+                    status = HttpStatusCode.Forbidden
+                )
+            }
         }
         val token = AuthService.login(email, passwordHash,userType)
         if (token != null) {

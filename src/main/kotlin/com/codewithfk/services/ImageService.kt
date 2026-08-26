@@ -8,7 +8,6 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.http.content.*
-import kotlinx.serialization.json.*
 import java.util.*
 import java.io.ByteArrayOutputStream
 import java.io.ByteArrayInputStream
@@ -29,21 +28,15 @@ object ImageService {
             
             // Compress image
             val compressedBytes = compressImage(originalBytes)
-            
-            // Get file extension from original filename
-            val originalFileName = imageData.originalFileName ?: "image.jpg"
-            val fileExtension = originalFileName.substringAfterLast(".", "jpg")
-            
+
             // Generate new filename with timestamp and random UUID
             val timestamp = System.currentTimeMillis()
             val randomUUID = UUID.randomUUID().toString().take(8)
-            val newFileName = "${folder}/image_${timestamp}_${randomUUID}.$fileExtension"
-            
+            val newFileName ="${folder}/image_${timestamp}_${randomUUID}.jpg"
             // Upload to Supabase Storage
             val response = client.put("$STORAGE_URL/${SupabaseConfig.STORAGE_BUCKET}/$newFileName") {
                 headers {
                     append("apikey", SupabaseConfig.SUPABASE_KEY)
-                    append("Authorization", "Bearer ${SupabaseConfig.SUPABASE_KEY}")
                     append("Content-Type", "image/jpeg")
                 }
                 setBody(compressedBytes)
@@ -52,7 +45,9 @@ object ImageService {
             if (response.status.isSuccess()) {
                 return "$STORAGE_URL/public/${SupabaseConfig.STORAGE_BUCKET}/$newFileName"
             } else {
-                throw IllegalStateException("Failed to upload image: ${response.status}")
+                throw IllegalStateException(
+                    "Supabase upload failed: ${response.status} ${response.bodyAsText()}"
+                )
             }
         } catch (e: Exception) {
             throw IllegalStateException("Failed to upload image: ${e.message}")
@@ -108,7 +103,6 @@ object ImageService {
             val response = client.delete("$STORAGE_URL/${SupabaseConfig.STORAGE_BUCKET}/$fileName") {
                 headers {
                     append("apikey", SupabaseConfig.SUPABASE_KEY)
-                    append("Authorization", "Bearer ${SupabaseConfig.SUPABASE_KEY}")
                 }
             }
 

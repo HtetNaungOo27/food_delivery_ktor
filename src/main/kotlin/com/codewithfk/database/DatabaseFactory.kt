@@ -14,7 +14,7 @@ object DatabaseFactory {
         val driverClassName = "com.mysql.cj.jdbc.Driver"
         val jdbcURL = "jdbc:mysql://localhost:3306/food_delivery"
         val user = "root"
-        val password = "root"
+        val password = "272005ismyBD!"
 
         try {
             Class.forName(driverClassName)
@@ -34,7 +34,8 @@ object DatabaseFactory {
                     NotificationsTable,
                     RiderLocationsTable,
                     DeliveryRequestsTable,
-                    RiderRejectionsTable
+                    RiderRejectionsTable,
+                    ReviewsTable
                 )
 
                 // Check if rider_id column exists
@@ -141,19 +142,19 @@ fun Application.migrateDatabase() {
                 println("Added is_available column to menu_items table")
             }
 
-            // Migration 4: Update all restaurants to be owned by owner1@example.com
-            val owner1Id = UsersTable
-                .select { UsersTable.email eq "owner1@example.com" }
-                .map { it[UsersTable.id] }
-                .firstOrNull()
-
-            if (owner1Id != null) {
-                RestaurantsTable.update {
-                    it[ownerId] = owner1Id
-                }
-                println("Updated all restaurants to be owned by owner1@example.com")
-            } else {
-                println("Warning: owner1@example.com not found, skipping restaurant ownership migration")
+            listOf(
+                "landmark" to "ALTER TABLE addresses ADD COLUMN landmark VARCHAR(255) NULL",
+                "plus_code" to "ALTER TABLE addresses ADD COLUMN plus_code VARCHAR(32) NULL"
+            ).forEach { (column, statement) ->
+                val exists = exec("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'addresses' AND COLUMN_NAME = '$column'") { it.next(); it.getInt(1) } ?: 0 > 0
+                if (!exists) exec(statement)
+            }
+            listOf(
+                "payment_method" to "ALTER TABLE orders ADD COLUMN payment_method VARCHAR(20) NOT NULL DEFAULT 'CARD'",
+                "cod_collected" to "ALTER TABLE orders ADD COLUMN cod_collected BOOLEAN NOT NULL DEFAULT FALSE"
+            ).forEach { (column, statement) ->
+                val exists = exec("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders' AND COLUMN_NAME = '$column'") { it.next(); it.getInt(1) } ?: 0 > 0
+                if (!exists) exec(statement)
             }
 
             // Update owner password
@@ -170,9 +171,9 @@ fun Application.migrateDatabase() {
 fun Application.seedDatabase() {
     environment.monitor.subscribe(ApplicationStarted) {
         transaction {
-            val owner1Id = UUID.randomUUID()
-            val owner2Id = UUID.randomUUID()
-            val riderId = UUID.randomUUID()  // Add rider ID
+            val owner1Id = UsersTable.select { UsersTable.email eq "owner1@example.com" }.singleOrNull()?.get(UsersTable.id) ?: UUID.randomUUID()
+            val owner2Id = UsersTable.select { UsersTable.email eq "owner2@example.com" }.singleOrNull()?.get(UsersTable.id) ?: UUID.randomUUID()
+            val riderId = UsersTable.selectAll().firstOrNull { it[UsersTable.role].equals("rider", ignoreCase = true) }?.get(UsersTable.id) ?: UUID.randomUUID()
             // Seed users if none exist
             if (UsersTable.selectAll().empty()) {
                 println("Seeding users...")
@@ -199,7 +200,7 @@ fun Application.seedDatabase() {
                 }
             }
 
-            if(UsersTable.select { UsersTable.role eq "rider" }.empty()){
+            if (UsersTable.selectAll().none { it[UsersTable.role].equals("rider", ignoreCase = true) }) {
                 UsersTable.insert {
                     it[id] = riderId
                     it[email] = "rider@example.com"
@@ -222,6 +223,8 @@ fun Application.seedDatabase() {
                     it[lastUpdated] = org.jetbrains.exposed.sql.javatime.CurrentDateTime()
                 }
             }
+
+            seedDemoCustomer()
 
             // Seed categories if none exist
             val categoryIds = if (CategoriesTable.selectAll().empty()) {
@@ -456,6 +459,8 @@ fun Application.seedDatabase() {
 
                 println("Menu items seeded for all restaurants.")
             }
+
+            seedPresentationDemo()
         }
     }
 }

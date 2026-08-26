@@ -356,7 +356,8 @@ object RiderService {
                         orderAmount = row[OrdersTable.totalAmount],
                         estimatedDistance = distance,
                         estimatedEarning = calculateEarnings(distance, row[OrdersTable.totalAmount]),
-                        createdAt = row[OrdersTable.createdAt].toString()
+                        createdAt = row[OrdersTable.createdAt].toString(),
+                        paymentMethod = row[OrdersTable.paymentMethod]
                     )
                 } else null
             }
@@ -385,6 +386,10 @@ object RiderService {
                     "FAILED" -> OrderStatus.DELIVERY_FAILED.name
                     else -> throw IllegalArgumentException("Invalid status: ${statusUpdate.status}")
                 }
+                if (statusUpdate.status == "DELIVERED" && order[OrdersTable.paymentMethod] == "COD") {
+                    it[paymentStatus] = "PAID"
+                    it[codCollected] = true
+                }
             } > 0
 
             if (updated) {
@@ -408,6 +413,31 @@ object RiderService {
 
             updated
         }
+    }
+
+    fun getWallet(riderId: UUID): RiderWallet = transaction {
+        val completed = OrdersTable.select {
+            (OrdersTable.riderId eq riderId) and (OrdersTable.status eq OrderStatus.DELIVERED.name)
+        }.toList()
+        val earnings = completed.sumOf { row ->
+            val restaurant = RestaurantsTable.select { RestaurantsTable.id eq row[OrdersTable.restaurantId] }.single()
+            val address = getOrderAddress(row[OrdersTable.addressId])
+            calculateEarnings(
+                calculateDistance(restaurant[RestaurantsTable.latitude], restaurant[RestaurantsTable.longitude], address?.latitude ?: 0.0, address?.longitude ?: 0.0),
+                row[OrdersTable.totalAmount]
+            )
+        }
+        val cash = completed.filter { it[OrdersTable.paymentMethod] == "COD" && it[OrdersTable.codCollected] }
+            .sumOf { it[OrdersTable.totalAmount] }
+        RiderWallet(completed.size, earnings, cash, (cash - earnings).coerceAtLeast(0.0))
+    }
+
+    fun settleWallet(riderId: UUID): Boolean = transaction {
+        OrdersTable.update({
+            (OrdersTable.riderId eq riderId) and
+                (OrdersTable.paymentMethod eq "COD") and
+                (OrdersTable.codCollected eq true)
+        }) { it[codCollected] = false } > 0
     }
 
     private fun calculateEarnings(distance: Double, orderAmount: Double): Double {
@@ -467,7 +497,9 @@ object RiderService {
                             state = customerAddress?.state,
                             zipCode = customerAddress?.zipCode ?: "",
                             latitude = customerAddress?.latitude ?: 0.0,
-                            longitude = customerAddress?.longitude ?: 0.0
+                            longitude = customerAddress?.longitude ?: 0.0,
+                            landmark = customerAddress?.landmark,
+                            plusCode = customerAddress?.plusCode
                         ),
                         items = items,
                         totalAmount = row[OrdersTable.totalAmount],
@@ -479,7 +511,8 @@ object RiderService {
                             row[OrdersTable.totalAmount]
                         ),
                         createdAt = row[OrdersTable.createdAt].toString(),
-                        updatedAt = row[OrdersTable.updatedAt].toString()
+                        updatedAt = row[OrdersTable.updatedAt].toString(),
+                        paymentMethod = row[OrdersTable.paymentMethod]
                     )
                 }
         }

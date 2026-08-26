@@ -90,6 +90,8 @@ object AddressesTable : Table("addresses") {
     val country = varchar("country", 100)
     val latitude = double("latitude").nullable()
     val longitude = double("longitude").nullable()
+    val landmark = varchar("landmark", 255).nullable()
+    val plusCode = varchar("plus_code", 32).nullable()
     override val primaryKey: PrimaryKey
         get() = PrimaryKey(id)
 }
@@ -105,6 +107,8 @@ object OrdersTable : Table("orders") {
     val createdAt = datetime("created_at").defaultExpression(org.jetbrains.exposed.sql.javatime.CurrentTimestamp())
     val updatedAt = datetime("updated_at").defaultExpression(org.jetbrains.exposed.sql.javatime.CurrentTimestamp())
     val riderId = uuid("rider_id").references(UsersTable.id).nullable()
+    val paymentMethod = varchar("payment_method", 20).default("CARD")
+    val codCollected = bool("cod_collected").default(false)
     
     override val primaryKey = PrimaryKey(id)
 }
@@ -115,5 +119,21 @@ object OrderItemsTable : Table("order_items") {
     val menuItemId = uuid("menu_item_id").references(MenuItemsTable.id)
     val quantity = integer("quantity")
     
+    override val primaryKey = PrimaryKey(id)
+}
+
+object ReviewsTable : Table("restaurant_reviews") {
+    val id = uuid("id").autoGenerate()
+    val userId = uuid("user_id").references(UsersTable.id)
+    val restaurantId = uuid("restaurant_id").references(RestaurantsTable.id)
+    val rating = integer("rating")
+    val comment = varchar("comment", 1000)
+    val createdAt = datetime("created_at").defaultExpression(org.jetbrains.exposed.sql.javatime.CurrentTimestamp())
+    val updatedAt = datetime("updated_at").defaultExpression(org.jetbrains.exposed.sql.javatime.CurrentTimestamp())
+
+    init {
+        uniqueIndex(userId, restaurantId)
+    }
+
     override val primaryKey = PrimaryKey(id)
 }
