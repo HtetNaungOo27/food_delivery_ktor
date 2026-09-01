@@ -5,7 +5,12 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class PlaceOrderRequest(
     val addressId: String,
-    val paymentMethod: String = "CARD"
+    val paymentMethod: String = "CARD",
+    val idempotencyKey: String? = null,
+    val specialInstructions: String? = null,
+    val riderInstructions: String? = null,
+    val fulfillmentType: String = "DELIVERY",
+    val scheduledFor: String? = null
 )
 
 @Serializable
@@ -14,6 +19,7 @@ data class Order(
     val userId: String,
     val restaurantId: String,
     val riderId: String?,
+    val riderName: String? = null,
     val address: Address?,
     val status: String,
     val paymentStatus: String,
@@ -21,6 +27,13 @@ data class Order(
     val codCollected: Boolean = false,
     val stripePaymentIntentId: String?,
     val totalAmount: Double,
+    val specialInstructions: String? = null,
+    val riderInstructions: String? = null,
+    val preparationMinutes: Int? = null,
+    val deliveryOtp: String? = null,
+    val rejectionReason: String? = null,
+    val fulfillmentType: String = "DELIVERY",
+    val scheduledFor: String? = null,
     val items: List<OrderItem>? = null,
     val restaurant: Restaurant? = null,
     val createdAt: String,
@@ -33,15 +46,19 @@ data class OrderItem(
     val orderId: String,
     val menuItemId: String,
     val quantity: Int,
-    val menuItemName:String?
+    val menuItemName:String?,
+    val selectedModifiers: List<SelectedModifier> = emptyList()
 )
 
 @Serializable
 data class AddToCartRequest(
     val restaurantId: String,
     val menuItemId: String,
-    val quantity: Int
+    val quantity: Int,
+    val selectedModifiers: List<SelectedModifier> = emptyList()
 )
+
+@Serializable data class SelectedModifier(val group: String, val option: String)
 
 // Add these order statuses as an enum
 enum class OrderStatus {

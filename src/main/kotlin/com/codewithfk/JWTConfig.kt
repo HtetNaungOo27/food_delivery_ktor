@@ -6,7 +6,9 @@ import com.auth0.jwt.algorithms.Algorithm
 import java.util.*
 
 object JwtConfig {
-    private const val secret = "your_secret_key"
+    private val secret = System.getenv("JWT_SECRET")
+        ?.takeIf { it.length >= 32 }
+        ?: "your_very_secure_and_long_secret_key_at_least_32_chars"
     private const val issuer = "ktor.io"
     private const val audience = "ktor-audience"
     private const val validityInMs = 36_000_00 * 10 // 10 hours

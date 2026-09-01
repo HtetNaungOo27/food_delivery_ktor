@@ -15,8 +15,30 @@ import kotlinx.coroutines.runBlocking
 
 
 data class TokenRequest(val token: String)
+@kotlinx.serialization.Serializable data class PasswordResetRequest(val email: String)
+@kotlinx.serialization.Serializable data class PasswordResetConfirm(val email: String, val code: String, val newPassword: String)
 
 fun Route.authRoutes() {
+
+    post("/auth/password/forgot") {
+        val request = call.receive<PasswordResetRequest>()
+        val debugCode = AuthService.requestPasswordReset(request.email)
+        call.respond(mapOf(
+            "message" to "If an account exists, a reset code has been sent",
+            "debugCode" to debugCode
+        ))
+    }
+
+    post("/auth/password/reset") {
+        val request = call.receive<PasswordResetConfirm>()
+        try {
+            if (AuthService.resetPassword(request.email, request.code, request.newPassword)) {
+                call.respond(mapOf("message" to "Password updated successfully"))
+            } else call.respondError(HttpStatusCode.BadRequest, "The reset code is invalid or expired")
+        } catch (e: IllegalArgumentException) {
+            call.respondError(HttpStatusCode.BadRequest, e.message ?: "Invalid password")
+        }
+    }
 
 
     post("/auth/signup") {
@@ -29,9 +51,8 @@ fun Route.authRoutes() {
             "Password is required",
             status = HttpStatusCode.BadRequest
         )
-        val role = params["role"] ?: "customer"
-
-        val token = AuthService.register(name, email, passwordHash, role)
+        // Public registration must never be allowed to provision privileged roles.
+        val token = AuthService.register(name, email, passwordHash, UserRole.CUSTOMER.name)
         call.respond(mapOf("token" to token))
     }
 
@@ -75,7 +96,6 @@ fun Route.authRoutes() {
             val params = call.receive<Map<String, String>>()
             val provider = params["provider"]
             val token = params["token"]
-            val type: String = params["type"] ?: "customer"
 
             if (provider == null || token == null) {
                 call.respondError("Invalid request", status = HttpStatusCode.BadRequest)
@@ -96,7 +116,7 @@ fun Route.authRoutes() {
                     status = HttpStatusCode.BadRequest
                 )
                 val name = userInfo["name"] ?: "Unknown User"
-                val jwt = AuthService.oauthLoginOrRegister(email, name, provider, type)
+                val jwt = AuthService.oauthLoginOrRegister(email, name, provider, UserRole.CUSTOMER.name)
                 call.respond(mapOf("token" to jwt))
             } else {
                 call.respondError("Invalid token", status = HttpStatusCode.Unauthorized)

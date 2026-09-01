@@ -80,9 +80,14 @@ fun Route.paymentRoutes() {
                     ?: return@post call.respondError(HttpStatusCode.BadRequest, "Payment Intent ID required")
 
                 try {
+                    val request = call.receive<ConfirmPaymentRequest>()
                     val response = PaymentController.confirmAndPlaceOrder(
                         UUID.fromString(userId),
-                        paymentIntentId
+                        paymentIntentId,
+                        request.specialInstructions,
+                        request.riderInstructions,
+                        request.fulfillmentType,
+                        request.scheduledFor
                     )
                     call.respond(response)
                 } catch (e: Exception) {
@@ -94,4 +99,4 @@ fun Route.paymentRoutes() {
             }
         }
     }
-} 
+}

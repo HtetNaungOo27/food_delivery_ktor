@@ -13,6 +13,8 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 
 import java.util.*
+import com.codewithfk.model.UserRole
+import com.codewithfk.utils.requireRole
 
 fun Route.restaurantRoutes() {
     route("/restaurants") {
@@ -23,8 +25,7 @@ fun Route.restaurantRoutes() {
         authenticate {
             post {
                 val params = call.receive<Map<String, String>>()
-                val ownerId = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString()
-                    ?: return@post call.respondError("Unauthorized.", HttpStatusCode.Unauthorized)
+                val ownerId = call.requireRole(UserRole.OWNER) ?: return@post
 
                 val name = params["name"] ?: return@post call.respondError(
                     "Restaurant name is required.",
@@ -45,15 +46,14 @@ fun Route.restaurantRoutes() {
                 val categoryId = params["categoryId"]
                     ?: return@post call.respondError("Valid category ID is required.", HttpStatusCode.BadRequest)
 
-                val restaurantId = RestaurantService.addRestaurant(
-                    UUID.fromString(ownerId),
-                    name,
-                    address,
-                    latitude,
-                    longitude,
-                    UUID.fromString(categoryId)
-                )
-                call.respond(mapOf("id" to restaurantId.toString(), "message" to "Restaurant added successfully"))
+                try {
+                    val restaurantId = RestaurantService.addRestaurant(
+                        ownerId, name, address, latitude, longitude, UUID.fromString(categoryId)
+                    )
+                    call.respond(mapOf("id" to restaurantId.toString(), "message" to "Restaurant added successfully"))
+                } catch (error: IllegalStateException) {
+                    call.respondError(error.message ?: "Restaurant cannot be created", HttpStatusCode.Conflict)
+                }
             }
         }
 

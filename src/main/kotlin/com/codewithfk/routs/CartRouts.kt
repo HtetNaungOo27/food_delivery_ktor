@@ -66,21 +66,29 @@ fun Route.cartRoutes() {
                 "Quantity is required."
             )
 
-            val cartItemId = CartService.addToCart(UUID.fromString(userId), restaurantId, menuItemId, quantity)
-            call.respond(mapOf("id" to cartItemId.toString(), "message" to "Item added to cart"))
+            try {
+                val cartItemId = CartService.addToCart(UUID.fromString(userId), restaurantId, menuItemId, quantity, request.selectedModifiers)
+                call.respond(mapOf("id" to cartItemId.toString(), "message" to "Item added to cart"))
+            } catch (error: IllegalArgumentException) {
+                call.respondError(HttpStatusCode.BadRequest, error.message ?: "Invalid cart item")
+            } catch (error: IllegalStateException) {
+                call.respondError(HttpStatusCode.Conflict, error.message ?: "Item cannot be added")
+            }
         }
 
         /**
          * Update item quantity in the cart
          */
         patch {
+            val userId = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString()
+                ?: return@patch call.respondError(HttpStatusCode.Unauthorized, "Unauthorized")
             val cartItem = call.receive<UpdateCartItemRequest>()
             val quantity = cartItem.quantity
-            if (quantity == 0) {
-                call.respondError(HttpStatusCode.BadRequest, "Quantity cannot be zero")
+            if (quantity !in 1..99) {
+                return@patch call.respondError(HttpStatusCode.BadRequest, "Quantity must be between 1 and 99")
             }
 
-            val success = CartService.updateCartItemQuantity(UUID.fromString(cartItem.cartItemId), quantity)
+            val success = CartService.updateCartItemQuantity(UUID.fromString(userId), UUID.fromString(cartItem.cartItemId), quantity)
             if (success) call.respond(mapOf("message" to "Cart item updated successfully"))
             else call.respondError(HttpStatusCode.NotFound, "Cart item not found")
         }
@@ -89,12 +97,14 @@ fun Route.cartRoutes() {
          * Remove an item from the cart
          */
         delete("/{cartItemId}") {
+            val userId = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString()
+                ?: return@delete call.respondError(HttpStatusCode.Unauthorized, "Unauthorized")
             val cartItemId = call.parameters["cartItemId"] ?: return@delete call.respondError(
                 HttpStatusCode.BadRequest,
                 "Cart item ID is required."
             )
 
-            val success = CartService.removeCartItem(UUID.fromString(cartItemId))
+            val success = CartService.removeCartItem(UUID.fromString(userId), UUID.fromString(cartItemId))
             if (success) call.respond(mapOf("message" to "Cart item removed successfully"))
             else call.respondError(HttpStatusCode.NotFound, "Cart item not found")
         }

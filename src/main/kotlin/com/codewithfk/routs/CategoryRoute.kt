@@ -8,6 +8,8 @@ import io.ktor.server.auth.*
 import io.ktor.server.response.*
 import io.ktor.server.request.*
 import io.ktor.server.routing.*
+import com.codewithfk.model.UserRole
+import com.codewithfk.utils.requireRole
 
 fun Route.categoryRoutes() {
     route("/categories") {
@@ -25,6 +27,7 @@ fun Route.categoryRoutes() {
          */
         authenticate {
             post {
+                call.requireRole(UserRole.ADMIN) ?: return@post
                 val params = call.receive<Map<String, String>>()
                 val name = params["name"] ?: return@post call.respondError(
                     "Name is required",

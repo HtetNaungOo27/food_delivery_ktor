@@ -3,6 +3,7 @@ package com.codewithfk.database
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.select
 import java.util.UUID
+import com.codewithfk.utils.PasswordHasher
 
 /** Adds a repeatable presentation account without replacing existing user data. */
 fun seedDemoCustomer() {
@@ -15,7 +16,7 @@ fun seedDemoCustomer() {
         it[name] = "Alex Morgan"
         it[role] = "CUSTOMER"
         it[authProvider] = "email"
-        it[passwordHash] = "111111"
+        it[passwordHash] = PasswordHasher.hash("111111")
         it[createdAt] = org.jetbrains.exposed.sql.javatime.CurrentDateTime
     }
     AddressesTable.insert {

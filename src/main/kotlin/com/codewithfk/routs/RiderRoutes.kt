@@ -11,18 +11,34 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import java.util.*
+import com.codewithfk.utils.requireRole
 
 fun Route.riderRoutes() {
     route("/rider") {
         authenticate {
+            get("/availability") {
+                val riderId = call.requireRole(UserRole.RIDER) ?: return@get
+                call.respond(mapOf("available" to RiderService.isAvailable(riderId)))
+            }
+
+            put("/availability") {
+                val riderId = call.requireRole(UserRole.RIDER) ?: return@put
+                val available = call.receive<Map<String, Boolean>>()["available"]
+                    ?: return@put call.respondError(HttpStatusCode.BadRequest, "Availability is required")
+                try {
+                    RiderService.setAvailability(riderId, available)
+                    call.respond(mapOf("message" to if (available) "You are online" else "You are offline"))
+                } catch (e: IllegalStateException) {
+                    call.respondError(HttpStatusCode.Conflict, e.message ?: "Availability could not be updated")
+                }
+            }
             // Update rider location
             post("/location") {
-                val riderId = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString()
-                    ?: return@post call.respondError(HttpStatusCode.Unauthorized, "Unauthorized")
+                val riderId = call.requireRole(UserRole.RIDER) ?: return@post
 
                 val location = call.receive<Location>()
                 RiderService.updateRiderLocation(
-                    UUID.fromString(riderId),
+                    riderId,
                     location.latitude,
                     location.longitude
                 )
@@ -31,8 +47,7 @@ fun Route.riderRoutes() {
 
             // Accept delivery request
             post("/deliveries/{orderId}/accept") {
-                val riderId = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString()
-                    ?: return@post call.respondError(HttpStatusCode.Unauthorized, "Unauthorized")
+                val riderId = call.requireRole(UserRole.RIDER) ?: return@post
 
                 val orderId = call.parameters["orderId"] ?: return@post call.respondError(
                     HttpStatusCode.BadRequest,
@@ -40,7 +55,7 @@ fun Route.riderRoutes() {
                 )
 
                 val accepted = RiderService.acceptDeliveryRequest(
-                    UUID.fromString(riderId),
+                    riderId,
                     UUID.fromString(orderId)
                 )
 
@@ -53,8 +68,7 @@ fun Route.riderRoutes() {
 
             // Get delivery path
             get("/deliveries/{orderId}/path") {
-                val riderId = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString()
-                    ?: return@get call.respondError(HttpStatusCode.Unauthorized, "Unauthorized")
+                val riderId = call.requireRole(UserRole.RIDER) ?: return@get
 
                 val orderId = call.parameters["orderId"] ?: return@get call.respondError(
                     HttpStatusCode.BadRequest,
@@ -62,7 +76,7 @@ fun Route.riderRoutes() {
                 )
 
                 val path = RiderService.getDeliveryPath(
-                    UUID.fromString(riderId),
+                    riderId,
                     UUID.fromString(orderId)
                 )
                 call.respond(path)
@@ -70,17 +84,15 @@ fun Route.riderRoutes() {
 
             // Get available deliveries
             get("/deliveries/available") {
-                val riderId = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString()
-                    ?: return@get call.respondError(HttpStatusCode.Unauthorized, "Unauthorized")
+                val riderId = call.requireRole(UserRole.RIDER) ?: return@get
 
-                val deliveries = RiderService.getAvailableDeliveries(UUID.fromString(riderId))
+                val deliveries = RiderService.getAvailableDeliveries(riderId)
                 call.respond(mapOf("data" to  deliveries))
             }
 
             // Reject delivery request
             post("/deliveries/{orderId}/reject") {
-                val riderId = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString()
-                    ?: return@post call.respondError(HttpStatusCode.Unauthorized, "Unauthorized")
+                val riderId = call.requireRole(UserRole.RIDER) ?: return@post
 
                 val orderId = call.parameters["orderId"] ?: return@post call.respondError(
                     HttpStatusCode.BadRequest,
@@ -88,7 +100,7 @@ fun Route.riderRoutes() {
                 )
 
                 val rejected = RiderService.rejectDeliveryRequest(
-                    UUID.fromString(riderId),
+                    riderId,
                     UUID.fromString(orderId)
                 )
 
@@ -101,8 +113,7 @@ fun Route.riderRoutes() {
 
             // Update delivery status
             post("/deliveries/{orderId}/status") {
-                val riderId = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString()
-                    ?: return@post call.respondError(HttpStatusCode.Unauthorized, "Unauthorized")
+                val riderId = call.requireRole(UserRole.RIDER) ?: return@post
 
                 val orderId = call.parameters["orderId"] ?: return@post call.respondError(
                     HttpStatusCode.BadRequest,
@@ -113,7 +124,7 @@ fun Route.riderRoutes() {
                 
                 try {
                     val updated = RiderService.updateDeliveryStatus(
-                        UUID.fromString(riderId),
+                        riderId,
                         UUID.fromString(orderId),
                         statusUpdate
                     )
@@ -132,23 +143,20 @@ fun Route.riderRoutes() {
 
             // Get active deliveries (assigned to this rider)
             get("/deliveries/active") {
-                val riderId = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString()
-                    ?: return@get call.respondError(HttpStatusCode.Unauthorized, "Unauthorized")
+                val riderId = call.requireRole(UserRole.RIDER) ?: return@get
 
-                val activeDeliveries = RiderService.getActiveDeliveries(UUID.fromString(riderId))
+                val activeDeliveries = RiderService.getActiveDeliveries(riderId)
                 call.respond(mapOf("data" to activeDeliveries))
             }
 
             get("/wallet") {
-                val riderId = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString()
-                    ?: return@get call.respondError(HttpStatusCode.Unauthorized, "Unauthorized")
-                call.respond(RiderService.getWallet(UUID.fromString(riderId)))
+                val riderId = call.requireRole(UserRole.RIDER) ?: return@get
+                call.respond(RiderService.getWallet(riderId))
             }
 
             post("/wallet/settle") {
-                val riderId = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString()
-                    ?: return@post call.respondError(HttpStatusCode.Unauthorized, "Unauthorized")
-                val settled = RiderService.settleWallet(UUID.fromString(riderId))
+                val riderId = call.requireRole(UserRole.RIDER) ?: return@post
+                val settled = RiderService.settleWallet(riderId)
                 call.respond(mapOf("message" to if (settled) "Wallet settled" else "No cash to settle"))
             }
         }

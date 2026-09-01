@@ -19,12 +19,17 @@ data class UpdateMenuItemRequest(
     val price: Double? = null,
     val imageUrl: String? = null,
     val category: String? = null,
-    val isAvailable: Boolean? = null
+    val isAvailable: Boolean? = null,
+    val unavailableUntil: String? = null,
+    val inventoryQuantity: Int? = null,
+    val dietaryTags: List<String>? = null,
+    val modifierGroups: List<MenuModifierGroup>? = null
 )
 
 @Serializable
 data class UpdateOrderStatusRequest(
-    val status: String
+    val status: String,
+    val preparationMinutes: Int? = null
 )
 
 @Serializable
@@ -59,5 +64,14 @@ data class UpdateRestaurantRequest(
     val categoryId: String? = null,
     val imageUrl: String? = null,
     val latitude: Double? = null,
-    val longitude: Double? = null
-) 
+    val longitude: Double? = null,
+    val isOpen: Boolean? = null,
+    val isBusy: Boolean? = null,
+    val opensAt: String? = null,
+    val closesAt: String? = null,
+    val deliveryRadiusKm: Double? = null,
+    val minimumOrderAmount: Double? = null
+    ,val phone: String? = null
+    ,val cuisine: String? = null
+    ,val deliveryFee: Double? = null
+)

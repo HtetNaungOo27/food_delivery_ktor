@@ -1,7 +1,7 @@
 package com.codewithfk.configs
 
 object SupabaseConfig {
-    const val SUPABASE_URL = ""
-    const val SUPABASE_KEY =""
-        const val STORAGE_BUCKET = ""
-} 
+    val SUPABASE_URL = System.getenv("SUPABASE_URL") ?: error("SUPABASE_URL is required")
+    val SUPABASE_KEY = System.getenv("SUPABASE_KEY") ?: error("SUPABASE_KEY is required")
+    val STORAGE_BUCKET = System.getenv("SUPABASE_STORAGE_BUCKET") ?: "foodhub-images"
+}

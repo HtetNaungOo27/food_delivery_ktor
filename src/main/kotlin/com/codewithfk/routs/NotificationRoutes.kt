@@ -35,8 +35,9 @@ fun Route.notificationRoutes() {
                 "Notification ID is required"
             )
 
-            NotificationService.markAsRead(UUID.fromString(notificationId))
-            call.respond(mapOf("message" to "Notification marked as read"))
+            val updated = NotificationService.markAsRead(UUID.fromString(userId), UUID.fromString(notificationId))
+            if (updated) call.respond(mapOf("message" to "Notification marked as read"))
+            else call.respondError(HttpStatusCode.NotFound, "Notification not found")
         }
 
         put("/fcm-token") {
@@ -53,4 +54,4 @@ fun Route.notificationRoutes() {
             call.respond(mapOf("message" to "FCM token updated successfully"))
         }
     }
-} 
+}

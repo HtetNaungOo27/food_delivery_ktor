@@ -10,23 +10,16 @@ import io.ktor.server.auth.jwt.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import com.codewithfk.model.UserRole
+import com.codewithfk.utils.requireRole
 
 fun Route.imageRoutes() {
     route("/images") {
         authenticate {
             post("/upload") {
                 try {
-                    // Get user role from JWT
-                    val principal = call.principal<JWTPrincipal>()
-                    val userRole = "owner"
-
-                    // Determine folder based on user role
-                    val folder = when (userRole.lowercase()) {
-                        "owner" -> "restaurants"
-                        "customer" -> "customers"
-                        "rider" -> "riders"
-                        else -> "misc"
-                    }
+                    val ownerId = call.requireRole(UserRole.OWNER) ?: return@post
+                    val folder = "restaurants/$ownerId"
 
                     // Handle multipart data
                     val multipart = call.receiveMultipart()
@@ -43,9 +36,13 @@ fun Route.imageRoutes() {
 
             delete("/{imageUrl}") {
                 try {
-                    val imageUrl = call.parameters["imageUrl"] 
+                    val ownerId = call.requireRole(UserRole.OWNER) ?: return@delete
+                    val imageUrl = call.parameters["imageUrl"]
                         ?: return@delete call.respondError(HttpStatusCode.BadRequest, "Image URL required")
-                    
+                    if (!imageUrl.contains("restaurants/$ownerId/")) {
+                        return@delete call.respondError(HttpStatusCode.Forbidden, "You do not own this image")
+                    }
+
                     ImageService.deleteImage(imageUrl)
                     call.respond(hashMapOf("message" to "Image deleted successfully"))
                 } catch (e: Exception) {
@@ -57,4 +54,4 @@ fun Route.imageRoutes() {
             }
         }
     }
-} 
+}

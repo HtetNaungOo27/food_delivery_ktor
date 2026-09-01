@@ -7,12 +7,20 @@ import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
 import java.util.*
+import java.time.LocalDateTime
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 
 object MenuItemService {
 
     fun getMenuItemsByRestaurant(restaurantId: UUID): List<MenuItem> {
         return transaction {
-            MenuItemsTable.select { MenuItemsTable.restaurantId eq restaurantId }
+            MenuItemsTable.select {
+                (MenuItemsTable.restaurantId eq restaurantId) and
+                    (MenuItemsTable.isAvailable eq true) and (MenuItemsTable.inventoryQuantity greater 0) and
+                    (MenuItemsTable.unavailableUntil.isNull() or (MenuItemsTable.unavailableUntil lessEq LocalDateTime.now()))
+            }
                 .map {
                     MenuItem(
                         id = it[MenuItemsTable.id].toString(),
@@ -22,7 +30,12 @@ object MenuItemService {
                         price = it[MenuItemsTable.price],
                         imageUrl = it[MenuItemsTable.imageUrl],
                         arModelUrl = it[MenuItemsTable.arModelUrl],
-                        createdAt = it[MenuItemsTable.createdAt].toString()
+                        createdAt = it[MenuItemsTable.createdAt].toString(),
+                        isAvailable = it[MenuItemsTable.isAvailable],
+                        unavailableUntil = it[MenuItemsTable.unavailableUntil]?.toString(),
+                        inventoryQuantity = it[MenuItemsTable.inventoryQuantity],
+                        dietaryTags = it[MenuItemsTable.dietaryTags].split(',').filter(String::isNotBlank),
+                        modifierGroups = runCatching { Json.decodeFromString<List<com.codewithfk.model.MenuModifierGroup>>(it[MenuItemsTable.modifiersJson]) }.getOrDefault(emptyList())
                     )
                 }
         }
@@ -37,6 +50,9 @@ object MenuItemService {
                 it[this.price] = menuItem.price
                 it[this.imageUrl] = menuItem.imageUrl
                 it[this.arModelUrl] = menuItem.arModelUrl
+                it[inventoryQuantity] = menuItem.inventoryQuantity.coerceAtLeast(0)
+                it[dietaryTags] = menuItem.dietaryTags.joinToString(",")
+                it[modifiersJson] = Json.encodeToString(menuItem.modifierGroups)
             } get MenuItemsTable.id
         }
     }

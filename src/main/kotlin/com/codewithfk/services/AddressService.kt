@@ -1,6 +1,7 @@
 package com.codewithfk.services
 
 import com.codewithfk.database.AddressesTable
+import com.codewithfk.database.OrdersTable
 import com.codewithfk.model.Address
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
@@ -51,6 +52,9 @@ object AddressService {
 
     fun updateAddress(addressId: UUID, updatedAddress: Address): Boolean {
         return transaction {
+            check(!OrdersTable.select { OrdersTable.addressId eq addressId }.any()) {
+                "Addresses used by an order are immutable; create a new address instead"
+            }
             AddressesTable.update({ AddressesTable.id eq addressId }) {
                 it[addressLine1] = updatedAddress.addressLine1
                 it[addressLine2] = updatedAddress.addressLine2
@@ -68,6 +72,9 @@ object AddressService {
 
     fun deleteAddress(addressId: UUID): Boolean {
         return transaction {
+            check(!OrdersTable.select { OrdersTable.addressId eq addressId }.any()) {
+                "Addresses used by an order cannot be deleted"
+            }
             AddressesTable.deleteWhere { AddressesTable.id eq addressId } > 0
         }
     }
@@ -98,13 +105,13 @@ object AddressService {
         transaction {
             AddressesTable.insert {
                 it[AddressesTable.userId] = (userId)
-                it[addressLine1] = "1600 Amphitheatre Parkway"
-                it[city] = "Mountain View"
-                it[state] = "CA"
-                it[zipCode] = "94043"
-                it[country] = "US"
-                it[latitude] = 37.422102
-                it[longitude] = -122.084153
+                it[addressLine1] = "Set your delivery address"
+                it[city] = "Yangon"
+                it[state] = "Yangon Region"
+                it[zipCode] = "11181"
+                it[country] = "Myanmar"
+                it[latitude] = 16.8409
+                it[longitude] = 96.1735
             } get AddressesTable.id
         }
     }

@@ -21,7 +21,7 @@ fun Route.addressRoutes() {
             get {
                 val userId = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString()
                     ?: return@get call.respondError(HttpStatusCode.Unauthorized, "Unauthorized")
-                
+
                 val addresses = AddressService.getAddressesByUser(UUID.fromString(userId))
                 call.respond(mapOf("addresses" to addresses))
             }
@@ -30,7 +30,7 @@ fun Route.addressRoutes() {
             post {
                 val userId = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString()
                     ?: return@post call.respondError(HttpStatusCode.Unauthorized, "Unauthorized")
-                
+
                 val address = call.receive<Address>().copy(userId = userId)
                 val addressId = AddressService.addAddress(address)
                 call.respond(HttpStatusCode.Created, mapOf(
@@ -43,25 +43,26 @@ fun Route.addressRoutes() {
             put("/{id}") {
                 val userId = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString()
                     ?: return@put call.respondError(HttpStatusCode.Unauthorized, "Unauthorized")
-                
+
                 val addressId = call.parameters["id"] ?: return@put call.respondError(
                     HttpStatusCode.BadRequest,
                     "Address ID is required"
                 )
-                
+
                 val updatedAddress = call.receive<Address>()
-                
+
                 // Verify the address belongs to the user
                 val existingAddress = AddressService.getAddressById(UUID.fromString(addressId))
                 if (existingAddress?.userId != userId) {
                     return@put call.respondError(HttpStatusCode.Forbidden, "Not authorized to update this address")
                 }
-                
-                val success = AddressService.updateAddress(UUID.fromString(addressId), updatedAddress)
-                if (success) {
-                    call.respond(mapOf("message" to "Address updated successfully"))
-                } else {
-                    call.respondError(HttpStatusCode.NotFound, "Address not found")
+
+                try {
+                    val success = AddressService.updateAddress(UUID.fromString(addressId), updatedAddress)
+                    if (success) call.respond(mapOf("message" to "Address updated successfully"))
+                    else call.respondError(HttpStatusCode.NotFound, "Address not found")
+                } catch (error: IllegalStateException) {
+                    call.respondError(HttpStatusCode.Conflict, error.message ?: "Address cannot be changed")
                 }
             }
 
@@ -69,23 +70,24 @@ fun Route.addressRoutes() {
             delete("/{id}") {
                 val userId = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString()
                     ?: return@delete call.respondError(HttpStatusCode.Unauthorized, "Unauthorized")
-                
+
                 val addressId = call.parameters["id"] ?: return@delete call.respondError(
                     HttpStatusCode.BadRequest,
                     "Address ID is required"
                 )
-                
+
                 // Verify the address belongs to the user
                 val existingAddress = AddressService.getAddressById(UUID.fromString(addressId))
                 if (existingAddress?.userId != userId) {
                     return@delete call.respondError(HttpStatusCode.Forbidden, "Not authorized to delete this address")
                 }
-                
-                val success = AddressService.deleteAddress(UUID.fromString(addressId))
-                if (success) {
-                    call.respond(mapOf("message" to "Address deleted successfully"))
-                } else {
-                    call.respondError(HttpStatusCode.NotFound, "Address not found")
+
+                try {
+                    val success = AddressService.deleteAddress(UUID.fromString(addressId))
+                    if (success) call.respond(mapOf("message" to "Address deleted successfully"))
+                    else call.respondError(HttpStatusCode.NotFound, "Address not found")
+                } catch (error: IllegalStateException) {
+                    call.respondError(HttpStatusCode.Conflict, error.message ?: "Address cannot be deleted")
                 }
             }
 
@@ -106,4 +108,4 @@ fun Route.addressRoutes() {
             }
         }
     }
-} 
+}

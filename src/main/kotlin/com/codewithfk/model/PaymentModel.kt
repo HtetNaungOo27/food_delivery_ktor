@@ -5,7 +5,10 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class CreatePaymentIntentRequest(
     val addressId: String,
-    val paymentMethodId: String? = null
+    val paymentMethodId: String? = null,
+    val idempotencyKey: String,
+    val fulfillmentType: String = "DELIVERY",
+    val scheduledFor: String? = null
 )
 
 @Serializable
@@ -32,7 +35,11 @@ data class PaymentWebhookResponse(
 data class ConfirmPaymentRequest(
     val paymentIntentId: String,
     val addressId: String,
-    val paymentMethodId: String? = null
+    val paymentMethodId: String? = null,
+    val specialInstructions: String? = null,
+    val riderInstructions: String? = null
+    ,val fulfillmentType: String = "DELIVERY"
+    ,val scheduledFor: String? = null
 )
 
 @Serializable
@@ -65,4 +72,4 @@ data class PaymentSheetResponse(
     val ephemeralKey: String,
     val customer: String,
     val publishableKey: String
-) 
+)

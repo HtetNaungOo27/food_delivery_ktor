@@ -15,7 +15,22 @@ object RiderService {
     private const val SEARCH_RADIUS_KM = 6371.0
     private const val EARTH_RADIUS_KM = 6371.0
 
+    fun isAvailable(riderId: UUID): Boolean = transaction {
+        RiderLocationsTable.select { RiderLocationsTable.riderId eq riderId }
+            .singleOrNull()?.get(RiderLocationsTable.isAvailable) ?: false
+    }
+
+    fun setAvailability(riderId: UUID, available: Boolean) = transaction {
+        val changed = RiderLocationsTable.update({ RiderLocationsTable.riderId eq riderId }) {
+            it[isAvailable] = available
+            it[lastUpdated] = org.jetbrains.exposed.sql.javatime.CurrentDateTime
+        }
+        check(changed == 1) { "Rider location is not configured" }
+    }
+
     fun updateRiderLocation(riderId: UUID, latitude: Double, longitude: Double) {
+        require(latitude.isFinite() && latitude in -90.0..90.0) { "Invalid latitude" }
+        require(longitude.isFinite() && longitude in -180.0..180.0) { "Invalid longitude" }
         transaction {
             // Update or insert new location
             val existingLocation = RiderLocationsTable
@@ -26,7 +41,7 @@ object RiderService {
                 RiderLocationsTable.update({ RiderLocationsTable.riderId eq riderId }) {
                     it[this.latitude] = latitude
                     it[this.longitude] = longitude
-                    it[this.lastUpdated] = org.jetbrains.exposed.sql.javatime.CurrentDateTime()
+                    it[this.lastUpdated] = org.jetbrains.exposed.sql.javatime.CurrentDateTime
                 }
             } else {
                 RiderLocationsTable.insert {
@@ -34,7 +49,7 @@ object RiderService {
                     it[this.latitude] = latitude
                     it[this.longitude] = longitude
                     it[this.isAvailable] = true
-                    it[this.lastUpdated] = org.jetbrains.exposed.sql.javatime.CurrentDateTime()
+                    it[this.lastUpdated] = org.jetbrains.exposed.sql.javatime.CurrentDateTime
                 }
             }
         }
@@ -87,6 +102,10 @@ object RiderService {
                     .join(RestaurantsTable, JoinType.INNER, OrdersTable.restaurantId, RestaurantsTable.id)
                     .select { OrdersTable.id eq orderId }
                     .firstOrNull() ?: throw IllegalStateException("Order not found")
+                if (order[OrdersTable.fulfillmentType] == "PICKUP") return@transaction false
+                if (order[OrdersTable.status] != OrderStatus.READY.name || order[OrdersTable.riderId] != null) {
+                    return@transaction false
+                }
 
                 val restaurantLat = order[RestaurantsTable.latitude] 
                     ?: throw IllegalStateException("Restaurant latitude not found")
@@ -101,11 +120,16 @@ object RiderService {
 
                 // Create delivery requests for nearby riders
                 nearbyRiders.forEach { rider ->
+                    val riderUuid = UUID.fromString(rider.id)
+                    if (DeliveryRequestsTable.select {
+                        (DeliveryRequestsTable.orderId eq orderId) and
+                            (DeliveryRequestsTable.riderId eq riderUuid)
+                    }.any()) return@forEach
                     DeliveryRequestsTable.insert {
                         it[this.orderId] = orderId
-                        it[this.riderId] = UUID.fromString(rider.id)
+                        it[this.riderId] = riderUuid
                         it[this.status] = "PENDING"
-                        it[this.createdAt] = org.jetbrains.exposed.sql.javatime.CurrentDateTime()
+                        it[this.createdAt] = org.jetbrains.exposed.sql.javatime.CurrentDateTime
                     }
 
                     // Notify rider
@@ -119,28 +143,18 @@ object RiderService {
     }
 
     private fun notifyRider(riderId: UUID, orderId: UUID) {
-        val riderFcmToken = transaction {
-            UsersTable
-                .select { UsersTable.id eq riderId }
-                .map { it[UsersTable.fcmToken] }
-                .firstOrNull()
-        }
-
-        riderFcmToken?.let { token ->
-            FirebaseService.sendNotification(
-                token = token,
-                title = "New Delivery Request",
-                body = "New delivery request available",
-                data = mapOf(
-                    "type" to "DELIVERY_REQUEST",
-                    "orderId" to orderId.toString()
-                )
-            )
-        }
+        NotificationService.createNotification(
+            userId = riderId,
+            title = "New Delivery Request",
+            message = "New delivery request available",
+            type = "NEW_DELIVERY",
+            orderId = orderId
+        )
     }
 
     fun acceptDeliveryRequest(riderId: UUID, orderId: UUID): Boolean {
         return transaction {
+            OrderTransitionPolicy.requireAllowed(OrderActor.RIDER, OrderStatus.READY, OrderStatus.ASSIGNED)
             // Check if order is available (READY status and no assigned rider)
             val order = OrdersTable.select { 
                 (OrdersTable.id eq orderId) and 
@@ -149,20 +163,34 @@ object RiderService {
             }.firstOrNull() ?: return@transaction false
             
             // Update order to assign it to rider
-            val updated = OrdersTable.update({ OrdersTable.id eq orderId }) {
+            val updated = OrdersTable.update({
+                (OrdersTable.id eq orderId) and
+                    (OrdersTable.status eq OrderStatus.READY.name) and
+                    OrdersTable.riderId.isNull()
+            }) {
                 it[OrdersTable.riderId] = riderId
                 it[OrdersTable.status] = OrderStatus.ASSIGNED.name
-                it[OrdersTable.updatedAt] = org.jetbrains.exposed.sql.javatime.CurrentDateTime()
-            } > 0
+                it[OrdersTable.updatedAt] = org.jetbrains.exposed.sql.javatime.CurrentDateTime
+            } == 1
             
             if (updated) {
+                DeliveryRequestsTable.update({
+                    (DeliveryRequestsTable.orderId eq orderId) and
+                        (DeliveryRequestsTable.riderId eq riderId)
+                }) { it[status] = "ACCEPTED" }
+                DeliveryRequestsTable.update({
+                    (DeliveryRequestsTable.orderId eq orderId) and
+                        (DeliveryRequestsTable.riderId neq riderId) and
+                        (DeliveryRequestsTable.status eq "PENDING")
+                }) { it[status] = "CANCELLED" }
+
                 // Notify customer
                 val customerId = order[OrdersTable.userId]
                 NotificationService.createNotification(
                     userId = customerId,
                     title = "Delivery Update",
                     message = "Your order has been assigned to a rider and will be picked up soon",
-                    type = "DELIVERY_STATUS",
+                    type = "DELIVERY_ASSIGNED",
                     orderId = orderId
                 )
                 
@@ -177,7 +205,7 @@ object RiderService {
                     userId = restaurantOwnerId,
                     title = "Rider Assigned",
                     message = "A rider has been assigned to pick up order #${orderId.toString().take(8)}",
-                    type = "DELIVERY_STATUS",
+                    type = "RIDER_ASSIGNED",
                     orderId = orderId
                 )
             }
@@ -202,14 +230,22 @@ object RiderService {
             if (!orderExists) {
                 return@transaction false
             }
+            if (RiderRejectionsTable.select {
+                (RiderRejectionsTable.riderId eq riderId) and (RiderRejectionsTable.orderId eq orderId)
+            }.any()) return@transaction true
             
             // Instead of using DeliveryRequestsTable, we'll track rejections in RiderRejections table
             // This table needs to be created if it doesn't exist
             RiderRejectionsTable.insert {
                 it[this.riderId] = riderId
                 it[this.orderId] = orderId
-                it[this.createdAt] = org.jetbrains.exposed.sql.javatime.CurrentDateTime()
+                it[this.createdAt] = org.jetbrains.exposed.sql.javatime.CurrentDateTime
             }
+            DeliveryRequestsTable.update({
+                (DeliveryRequestsTable.orderId eq orderId) and
+                    (DeliveryRequestsTable.riderId eq riderId) and
+                    (DeliveryRequestsTable.status eq "PENDING")
+            }) { it[status] = "REJECTED" }
             
             true
         }
@@ -217,6 +253,10 @@ object RiderService {
 
     fun getDeliveryPath(riderId: UUID, orderId: UUID): DeliveryPath {
         val order = OrderService.getOrderDetails(orderId)
+        check(order.riderId == riderId.toString()) { "Order is not assigned to this rider" }
+        check(order.status in setOf(OrderStatus.ASSIGNED.name, OrderStatus.OUT_FOR_DELIVERY.name)) {
+            "Delivery is not active"
+        }
         val riderLocation = getRiderLocation(riderId)
         val restaurant = RestaurantService.getRestaurantById(UUID.fromString(order.restaurantId))
             ?: throw IllegalStateException("Restaurant not found")
@@ -310,6 +350,7 @@ object RiderService {
         return transaction {
             // Get rider's current location
             val riderLocation = getRiderLocation(riderId)
+            if (!riderLocation.isAvailable) return@transaction emptyList()
             
             // Get IDs of orders this rider has rejected
             val rejectedOrderIds = RiderRejectionsTable
@@ -323,6 +364,7 @@ object RiderService {
                 .join(RestaurantsTable, JoinType.INNER, OrdersTable.restaurantId, RestaurantsTable.id)
                 .select {
                     (OrdersTable.status eq OrderStatus.READY.name) and
+                    (OrdersTable.fulfillmentType eq "DELIVERY") and
                     (OrdersTable.riderId.isNull())
                 })
                 
@@ -378,8 +420,56 @@ object RiderService {
                 }
                 .firstOrNull() ?: throw IllegalStateException("Order not found or unauthorized")
 
+            val currentStatus = order[OrdersTable.status]
+            val expectedStatus = when (statusUpdate.status) {
+                "PICKED_UP" -> OrderStatus.ASSIGNED.name
+                "DELIVERED", "FAILED" -> OrderStatus.OUT_FOR_DELIVERY.name
+                else -> throw IllegalArgumentException("Invalid status: ${statusUpdate.status}")
+            }
+            if (currentStatus != expectedStatus) {
+                val message = when (currentStatus) {
+                    OrderStatus.DELIVERED.name -> "This delivery has already been completed"
+                    OrderStatus.DELIVERY_FAILED.name -> "This delivery has already been closed as failed"
+                    else -> "Cannot mark ${statusUpdate.status.lowercase()} while delivery is $currentStatus"
+                }
+                throw IllegalArgumentException(message)
+            }
+            val targetStatus = when (statusUpdate.status) {
+                "PICKED_UP" -> OrderStatus.OUT_FOR_DELIVERY
+                "DELIVERED" -> OrderStatus.DELIVERED
+                "FAILED" -> OrderStatus.DELIVERY_FAILED
+                else -> throw IllegalArgumentException("Invalid status: ${statusUpdate.status}")
+            }
+            OrderTransitionPolicy.requireAllowed(
+                OrderActor.RIDER,
+                OrderStatus.valueOf(currentStatus),
+                targetStatus
+            )
+
+            if (statusUpdate.status == "DELIVERED") {
+                val expectedOtp = order[OrdersTable.deliveryOtp]
+                    ?: throw IllegalStateException("Delivery confirmation code is unavailable")
+                if (statusUpdate.deliveryOtp?.trim() != expectedOtp) {
+                    throw IllegalArgumentException("Ask the customer for the correct 4-digit delivery code")
+                }
+            }
+
+            if (statusUpdate.status == "DELIVERED" && order[OrdersTable.paymentMethod] == "COD") {
+                val cashReceived = statusUpdate.cashReceived
+                    ?: throw IllegalArgumentException("Enter the cash received before completing this COD delivery")
+                if (cashReceived < order[OrdersTable.totalAmount]) {
+                    throw IllegalArgumentException("Cash received is less than the amount due")
+                }
+            }
+
             // Update order status
-            val updated = OrdersTable.update({ OrdersTable.id eq orderId }) {
+            // Include the old state in the update predicate. If two requests arrive
+            // together, only the first can advance the order and create a notification.
+            val updated = OrdersTable.update({
+                (OrdersTable.id eq orderId) and
+                    (OrdersTable.riderId eq riderId) and
+                    (OrdersTable.status eq expectedStatus)
+            }) {
                 it[status] = when (statusUpdate.status) {
                     "PICKED_UP" -> OrderStatus.OUT_FOR_DELIVERY.name
                     "DELIVERED" -> OrderStatus.DELIVERED.name
@@ -389,8 +479,13 @@ object RiderService {
                 if (statusUpdate.status == "DELIVERED" && order[OrdersTable.paymentMethod] == "COD") {
                     it[paymentStatus] = "PAID"
                     it[codCollected] = true
+                    it[codCashReceived] = statusUpdate.cashReceived
                 }
             } > 0
+
+            if (!updated) {
+                throw IllegalArgumentException("Delivery status changed already. Refresh and try again")
+            }
 
             if (updated) {
                 // Notify customer
@@ -406,7 +501,11 @@ object RiderService {
                     userId = customerId,
                     title = "Delivery Update",
                     message = message,
-                    type = "DELIVERY_STATUS",
+                    type = when (statusUpdate.status) {
+                        "PICKED_UP" -> "OUT_FOR_DELIVERY"
+                        "DELIVERED" -> "DELIVERED"
+                        else -> "DELIVERY_FAILED"
+                    },
                     orderId = orderId
                 )
             }
@@ -429,22 +528,42 @@ object RiderService {
         }
         val cash = completed.filter { it[OrdersTable.paymentMethod] == "COD" && it[OrdersTable.codCollected] }
             .sumOf { it[OrdersTable.totalAmount] }
-        RiderWallet(completed.size, earnings, cash, (cash - earnings).coerceAtLeast(0.0))
+        val history = RiderSettlementsTable
+            .select { RiderSettlementsTable.riderId eq riderId }
+            .orderBy(RiderSettlementsTable.createdAt, SortOrder.DESC)
+            .limit(20)
+            .map { RiderSettlement(it[RiderSettlementsTable.id].toString(), it[RiderSettlementsTable.amount], it[RiderSettlementsTable.createdAt].toString()) }
+        RiderWallet(completed.size, earnings, cash, (cash - earnings).coerceAtLeast(0.0), settlements = history)
     }
 
     fun settleWallet(riderId: UUID): Boolean = transaction {
-        OrdersTable.update({
+        val orders = OrdersTable.select {
             (OrdersTable.riderId eq riderId) and
                 (OrdersTable.paymentMethod eq "COD") and
                 (OrdersTable.codCollected eq true)
-        }) { it[codCollected] = false } > 0
+        }.toList()
+        if (orders.isEmpty()) return@transaction false
+        val orderIds = orders.map { it[OrdersTable.id] }
+        val amount = orders.sumOf { it[OrdersTable.totalAmount] }
+        val updated = OrdersTable.update({
+            (OrdersTable.id inList orderIds) and
+                (OrdersTable.riderId eq riderId) and
+                (OrdersTable.codCollected eq true)
+        }) { it[codCollected] = false }
+        if (updated > 0) {
+            RiderSettlementsTable.insert {
+                it[this.riderId] = riderId
+                it[this.amount] = amount
+            }
+        }
+        updated > 0
     }
 
     private fun calculateEarnings(distance: Double, orderAmount: Double): Double {
         // Basic earnings calculation
-        val baseRate = 2.0 // Base rate in dollars
-        val perKmRate = 0.5 // Rate per kilometer
-        val orderPercentage = 0.05 // 5% of order amount
+        val baseRate = 1.5 // thousands of MMK
+        val perKmRate = 0.5 // thousands of MMK per kilometer
+        val orderPercentage = 0.03
         
         return baseRate + (distance * perKmRate) + (orderAmount * orderPercentage)
     }
@@ -473,9 +592,10 @@ object RiderService {
                         .map { itemRow ->
                             OrderItemDetail(
                                 id = itemRow[OrderItemsTable.id].toString(),
-                                name = itemRow[MenuItemsTable.name],
+                                name = itemRow[OrderItemsTable.itemName] ?: itemRow[MenuItemsTable.name],
                                 quantity = itemRow[OrderItemsTable.quantity],
-                                price = itemRow[MenuItemsTable.price]
+                                price = itemRow[OrderItemsTable.unitPrice] ?: itemRow[MenuItemsTable.price],
+                                selectedModifiers = runCatching { kotlinx.serialization.json.Json.decodeFromString<List<SelectedModifier>>(itemRow[OrderItemsTable.selectedModifiersJson]) }.getOrDefault(emptyList())
                             )
                         }
                     
@@ -512,7 +632,10 @@ object RiderService {
                         ),
                         createdAt = row[OrdersTable.createdAt].toString(),
                         updatedAt = row[OrdersTable.updatedAt].toString(),
-                        paymentMethod = row[OrdersTable.paymentMethod]
+                        paymentMethod = row[OrdersTable.paymentMethod],
+                        paymentStatus = row[OrdersTable.paymentStatus],
+                        riderInstructions = row[OrdersTable.riderInstructions],
+                        preparationMinutes = row[OrdersTable.preparationMinutes]
                     )
                 }
         }

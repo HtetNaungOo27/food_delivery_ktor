@@ -7,6 +7,7 @@ import org.jetbrains.exposed.sql.update
 import java.nio.charset.StandardCharsets
 import java.time.LocalDateTime
 import java.util.UUID
+import com.codewithfk.utils.PasswordHasher
 
 /**
  * Adds a connected, repeatable dataset for demonstrating every SwiftBite role.
@@ -23,7 +24,6 @@ fun seedPresentationDemo() {
             UsersTable.update({ UsersTable.id eq existing[UsersTable.id] }) {
                 it[UsersTable.name] = name
                 it[UsersTable.role] = role
-                it[UsersTable.passwordHash] = "111111"
                 it[UsersTable.authProvider] = "email"
             }
             return existing[UsersTable.id]
@@ -33,7 +33,7 @@ fun seedPresentationDemo() {
             it[UsersTable.id] = id
             it[UsersTable.name] = name
             it[UsersTable.email] = email
-            it[UsersTable.passwordHash] = "111111"
+            it[UsersTable.passwordHash] = PasswordHasher.hash("111111")
             it[UsersTable.authProvider] = "email"
             it[UsersTable.role] = role
             it[UsersTable.createdAt] = now.minusMonths(8)
@@ -64,6 +64,7 @@ fun seedPresentationDemo() {
                 row[RestaurantsTable.imageUrl] = image
                 row[RestaurantsTable.latitude] = lat
                 row[RestaurantsTable.longitude] = lng
+                row[RestaurantsTable.isApproved] = true
             }
             return id
         }
@@ -76,6 +77,7 @@ fun seedPresentationDemo() {
             it[RestaurantsTable.imageUrl] = image
             it[RestaurantsTable.latitude] = lat
             it[RestaurantsTable.longitude] = lng
+            it[RestaurantsTable.isApproved] = true
             it[RestaurantsTable.createdAt] = now.minusMonths(5)
         }
         return id
@@ -145,6 +147,8 @@ fun seedPresentationDemo() {
                 it[OrdersTable.paymentMethod] = paymentMethod
                 it[OrdersTable.paymentStatus] = paymentStatus
                 it[OrdersTable.totalAmount] = amount
+                it[OrdersTable.commissionPercentage] = 10.0
+                it[OrdersTable.commissionAmount] = amount * 0.10
                 it[OrdersTable.riderId] = rider
                 it[OrdersTable.codCollected] = codCollected
                 it[OrdersTable.createdAt] = now.minusHours(ageHours)

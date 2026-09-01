@@ -23,6 +23,7 @@
 hs_err_pid*
 replay_pid*
 .gradle
+.kotlin/
 build/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
@@ -57,3 +58,10 @@ out/
 
 ### VS Code ###
 .vscode/
+
+# Local secrets and operating-system metadata
+.env
+local.properties
+.DS_Store
+**/.DS_Store
+firebaseKey.json

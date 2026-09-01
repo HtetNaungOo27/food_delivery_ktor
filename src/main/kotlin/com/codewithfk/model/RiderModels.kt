@@ -59,7 +59,9 @@ data class AvailableDelivery(
 @Serializable
 data class DeliveryStatusUpdate(
     val status: String, // PICKED_UP, DELIVERED, FAILED
-    val reason: String? = null
+    val reason: String? = null,
+    val cashReceived: Double? = null,
+    val deliveryOtp: String? = null
 )
 
 enum class DeliveryStatus {
@@ -77,7 +79,15 @@ data class RiderWallet(
     val deliveryEarnings: Double,
     val cashCollected: Double,
     val amountToSettle: Double,
-    val lastSettlementMessage: String = "Settle collected cash with SwiftBite"
+    val lastSettlementMessage: String = "Settle collected cash with SwiftBite",
+    val settlements: List<RiderSettlement> = emptyList()
+)
+
+@Serializable
+data class RiderSettlement(
+    val id: String,
+    val amount: Double,
+    val createdAt: String
 )
 
 @Serializable
@@ -91,7 +101,10 @@ data class RiderDelivery(
     val estimatedEarning: Double,
     val createdAt: String,
     val updatedAt: String,
-    val paymentMethod: String = "CARD"
+    val paymentMethod: String = "CARD",
+    val paymentStatus: String,
+    val riderInstructions: String? = null,
+    val preparationMinutes: Int? = null
 )
 
 @Serializable
@@ -122,5 +135,6 @@ data class OrderItemDetail(
     val id: String,
     val name: String,
     val quantity: Int,
-    val price: Double
+    val price: Double,
+    val selectedModifiers: List<SelectedModifier> = emptyList()
 )

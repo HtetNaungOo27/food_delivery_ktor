@@ -8,8 +8,9 @@ object RiderLocationsTable : Table("rider_locations") {
     val riderId = uuid("rider_id").references(UsersTable.id)
     val latitude = double("latitude")
     val longitude = double("longitude")
-    val isAvailable = bool("is_available")
-    val lastUpdated = datetime("last_updated")
+    val isAvailable = bool("is_available").default(false)
+    val lastUpdated = datetime("last_updated").defaultExpression(org.jetbrains.exposed.sql.javatime.CurrentTimestamp())
+    init { uniqueIndex(riderId) }
 
     override val primaryKey = PrimaryKey(id)
 }
@@ -18,8 +19,12 @@ object DeliveryRequestsTable : Table("delivery_requests") {
     val id = uuid("id").autoGenerate()
     val orderId = uuid("order_id").references(OrdersTable.id)
     val riderId = uuid("rider_id").references(UsersTable.id)
-    val status = varchar("status", 50) // PENDING, ACCEPTED, REJECTED, CANCELLED
-    val createdAt = datetime("created_at")
+    val status = varchar("status", 50).default("PENDING") // PENDING, ACCEPTED, REJECTED, CANCELLED
+    val createdAt = datetime("created_at").defaultExpression(org.jetbrains.exposed.sql.javatime.CurrentTimestamp())
+    init {
+        uniqueIndex(orderId, riderId)
+        index(false, riderId, status)
+    }
 
     override val primaryKey = PrimaryKey(id)
-} 
+}

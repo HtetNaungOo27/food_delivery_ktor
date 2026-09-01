@@ -8,13 +8,16 @@ import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.javatime.datetime
 import org.jetbrains.exposed.sql.transactions.transaction
 import java.util.*
+import com.codewithfk.utils.PasswordHasher
 
 object DatabaseFactory {
     fun init() {
         val driverClassName = "com.mysql.cj.jdbc.Driver"
-        val jdbcURL = "jdbc:mysql://localhost:3306/food_delivery"
-        val user = "root"
-        val password = "272005ismyBD!"
+        val jdbcURL = System.getenv("DB_URL") ?: "jdbc:mysql://localhost:3306/food_delivery"
+        val user = System.getenv("DB_USER") ?: "root"
+        val password = System.getenv("DB_PASSWORD")
+            ?.takeIf { it.isNotBlank() }
+            ?: error("DB_PASSWORD is missing or empty in the Ktor run configuration")
 
         try {
             Class.forName(driverClassName)
@@ -24,8 +27,15 @@ object DatabaseFactory {
                 // Create base tables
                 SchemaUtils.createMissingTablesAndColumns(
                     UsersTable,
+                    AccountProfilesTable,
+                    StripeWebhookEventsTable,
+                    StripeRefundsTable,
+                    PayoutAccountsTable,
+                    PayoutsTable,
+                    PasswordResetTokensTable,
                     CategoriesTable,
                     RestaurantsTable,
+                    RestaurantHoursTable,
                     MenuItemsTable,
                     AddressesTable,
                     OrdersTable,
@@ -35,7 +45,13 @@ object DatabaseFactory {
                     RiderLocationsTable,
                     DeliveryRequestsTable,
                     RiderRejectionsTable,
-                    ReviewsTable
+                    ReviewsTable,
+                    RiderSettlementsTable
+                    ,NotificationOutboxTable,
+                    PlatformSettingsTable,
+                    DisputesTable,
+                    AdminAuditLogsTable
+                    ,CustomerFavoritesTable
                 )
 
                 // Check if rider_id column exists
@@ -151,14 +167,46 @@ fun Application.migrateDatabase() {
             }
             listOf(
                 "payment_method" to "ALTER TABLE orders ADD COLUMN payment_method VARCHAR(20) NOT NULL DEFAULT 'CARD'",
-                "cod_collected" to "ALTER TABLE orders ADD COLUMN cod_collected BOOLEAN NOT NULL DEFAULT FALSE"
+                "cod_collected" to "ALTER TABLE orders ADD COLUMN cod_collected BOOLEAN NOT NULL DEFAULT FALSE",
+                "cod_cash_received" to "ALTER TABLE orders ADD COLUMN cod_cash_received DOUBLE NULL",
+                "special_instructions" to "ALTER TABLE orders ADD COLUMN special_instructions VARCHAR(500) NULL",
+                "rider_instructions" to "ALTER TABLE orders ADD COLUMN rider_instructions VARCHAR(500) NULL",
+                "preparation_minutes" to "ALTER TABLE orders ADD COLUMN preparation_minutes INT NULL",
+                "delivery_otp" to "ALTER TABLE orders ADD COLUMN delivery_otp VARCHAR(6) NULL",
+                "commission_percentage" to "ALTER TABLE orders ADD COLUMN commission_percentage DOUBLE NOT NULL DEFAULT 10.0",
+                "commission_amount" to "ALTER TABLE orders ADD COLUMN commission_amount DOUBLE NOT NULL DEFAULT 0.0"
             ).forEach { (column, statement) ->
                 val exists = exec("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders' AND COLUMN_NAME = '$column'") { it.next(); it.getInt(1) } ?: 0 > 0
                 if (!exists) exec(statement)
             }
-
-            // Update owner password
-            updateOwnerPassword()
+            // Reconstruct commission for valid orders created before commission
+            // tracking. This is idempotent and preserves refunds and failed flows.
+            exec(
+                """
+                UPDATE orders
+                SET commission_amount = total_amount * commission_percentage / 100.0
+                WHERE commission_amount = 0
+                  AND commission_percentage > 0
+                  AND total_amount > 0
+                  AND UPPER(status) NOT IN ('CANCELLED', 'REJECTED', 'DELIVERY_FAILED', 'REFUNDED')
+                """.trimIndent()
+            )
+            val restaurantOpenExists = exec("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'restaurants' AND COLUMN_NAME = 'is_open'") { it.next(); it.getInt(1) } ?: 0 > 0
+            if (!restaurantOpenExists) exec("ALTER TABLE restaurants ADD COLUMN is_open BOOLEAN NOT NULL DEFAULT TRUE")
+            val userActiveExists = exec("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'is_active'") { it.next(); it.getInt(1) } ?: 0 > 0
+            if (!userActiveExists) exec("ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE")
+            val restaurantApprovedExists = exec("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'restaurants' AND COLUMN_NAME = 'is_approved'") { it.next(); it.getInt(1) } ?: 0 > 0
+            if (!restaurantApprovedExists) exec("ALTER TABLE restaurants ADD COLUMN is_approved BOOLEAN NOT NULL DEFAULT TRUE")
+            listOf(
+                "is_busy" to "ALTER TABLE restaurants ADD COLUMN is_busy BOOLEAN NOT NULL DEFAULT FALSE",
+                "opens_at" to "ALTER TABLE restaurants ADD COLUMN opens_at VARCHAR(5) NOT NULL DEFAULT '08:00'",
+                "closes_at" to "ALTER TABLE restaurants ADD COLUMN closes_at VARCHAR(5) NOT NULL DEFAULT '22:00'",
+                "delivery_radius_km" to "ALTER TABLE restaurants ADD COLUMN delivery_radius_km DOUBLE NOT NULL DEFAULT 10.0",
+                "minimum_order_amount" to "ALTER TABLE restaurants ADD COLUMN minimum_order_amount DOUBLE NOT NULL DEFAULT 0.0"
+            ).forEach { (column, statement) ->
+                val exists = exec("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'restaurants' AND COLUMN_NAME = '$column'") { it.next(); it.getInt(1) } ?: 0 > 0
+                if (!exists) exec(statement)
+            }
 
             println("All migrations completed successfully")
         } catch (e: Exception) {
@@ -171,6 +219,23 @@ fun Application.migrateDatabase() {
 fun Application.seedDatabase() {
     environment.monitor.subscribe(ApplicationStarted) {
         transaction {
+            val adminEmail = System.getenv("ADMIN_EMAIL")?.trim()?.lowercase()
+            val adminPassword = System.getenv("ADMIN_PASSWORD")
+            if (!adminEmail.isNullOrBlank() && !adminPassword.isNullOrBlank() &&
+                UsersTable.select { UsersTable.email eq adminEmail }.empty()
+            ) {
+                require(adminPassword.length >= 10) { "ADMIN_PASSWORD must contain at least 10 characters" }
+                UsersTable.insert {
+                    it[id] = UUID.randomUUID()
+                    it[email] = adminEmail
+                    it[name] = System.getenv("ADMIN_NAME")?.takeIf(String::isNotBlank) ?: "SwiftBite Administrator"
+                    it[role] = "ADMIN"
+                    it[authProvider] = "email"
+                    it[passwordHash] = PasswordHasher.hash(adminPassword)
+                    it[createdAt] = org.jetbrains.exposed.sql.javatime.CurrentDateTime
+                }
+                println("Created administrator account from ADMIN_EMAIL")
+            }
             val owner1Id = UsersTable.select { UsersTable.email eq "owner1@example.com" }.singleOrNull()?.get(UsersTable.id) ?: UUID.randomUUID()
             val owner2Id = UsersTable.select { UsersTable.email eq "owner2@example.com" }.singleOrNull()?.get(UsersTable.id) ?: UUID.randomUUID()
             val riderId = UsersTable.selectAll().firstOrNull { it[UsersTable.role].equals("rider", ignoreCase = true) }?.get(UsersTable.id) ?: UUID.randomUUID()
@@ -183,20 +248,22 @@ fun Application.seedDatabase() {
                 UsersTable.insert {
                     it[id] = owner1Id
                     it[email] = "owner1@example.com"
-                    it[name] = "Restaurant Owner"
+                    it[name] = "Aung Min"
                     it[role] = "OWNER"
                     it[authProvider] = "email"
-                    it[createdAt] = org.jetbrains.exposed.sql.javatime.CurrentDateTime()
+                    it[passwordHash] = PasswordHasher.hash("111111")
+                    it[createdAt] = org.jetbrains.exposed.sql.javatime.CurrentDateTime
                 }
 
                 // Insert owner2
                 UsersTable.insert {
                     it[id] = owner2Id
                     it[email] = "owner2@example.com"
-                    it[name] = "Another Owner"
+                    it[name] = "Thiri Win"
                     it[role] = "OWNER"
                     it[authProvider] = "email"
-                    it[createdAt] = org.jetbrains.exposed.sql.javatime.CurrentDateTime()
+                    it[passwordHash] = PasswordHasher.hash("111111")
+                    it[createdAt] = org.jetbrains.exposed.sql.javatime.CurrentDateTime
                 }
             }
 
@@ -204,11 +271,11 @@ fun Application.seedDatabase() {
                 UsersTable.insert {
                     it[id] = riderId
                     it[email] = "rider@example.com"
-                    it[name] = "Default Rider"
+                    it[name] = "Ko Zaw"
                     it[role] = "RIDER"
                     it[authProvider] = "email"
-                    it[passwordHash] = "111111" // Add hashed password
-                    it[createdAt] = org.jetbrains.exposed.sql.javatime.CurrentDateTime()
+                    it[passwordHash] = PasswordHasher.hash("111111")
+                    it[createdAt] = org.jetbrains.exposed.sql.javatime.CurrentDateTime
                 }
 
                 println("Seeded default users: owner1@example.com, owner2@example.com, rider@example.com")
@@ -217,10 +284,10 @@ fun Application.seedDatabase() {
                 // Add initial rider location
                 RiderLocationsTable.insert {
                     it[this.riderId] = riderId
-                    it[latitude] = 37.7749 // Default San Francisco coordinates
-                    it[longitude] = -122.4194
+                    it[latitude] = 16.8210
+                    it[longitude] = 96.1320
                     it[isAvailable] = true
-                    it[lastUpdated] = org.jetbrains.exposed.sql.javatime.CurrentDateTime()
+                    it[lastUpdated] = org.jetbrains.exposed.sql.javatime.CurrentDateTime
                 }
             }
 
@@ -273,7 +340,7 @@ fun Application.seedDatabase() {
                         it[id] = uuid
                         it[name] = category.name
                         it[imageUrl] = category.imageUrl
-                        it[createdAt] = org.jetbrains.exposed.sql.javatime.CurrentDateTime()
+                        it[createdAt] = org.jetbrains.exposed.sql.javatime.CurrentDateTime
                     }
                     category.name to uuid
                 }
@@ -287,51 +354,51 @@ fun Application.seedDatabase() {
                 val restaurants = listOf(
                     Triple(
                         Pair(
-                            "Pizza Palace",
+                            "Yangon Pizza House",
                             "https://www.marthastewart.com/thmb/3N-0cJgJfLDyytnCehJd4aVgHJw=/1500x0/filters:no_upscale():max_bytes(150000):strip_icc()/white-pizza-172-d112100_horiz-c868dcf28ed44b21af90f11797d6d7d6.jpgitokKoRSmCVm"
                         ),
-                        "123 Main St, New York, NY",
-                        Triple(40.712776, -74.005978, "Pizza")
+                        "No. 12, Inya Road, Kamayut, Yangon",
+                        Triple(16.8181, 96.1312, "Pizza")
                     ),
                     Triple(
                         Pair(
-                            "Burger Haven",
+                            "Hledan Burger House",
                             "https://imageproxy.wolt.com/mes-image/43bb7be3-03c2-4337-9d52-99cba2b1650d/85493202-0013-44f0-b7c1-59262d53e9ff"
                         ),
-                        "456 Elm St, Los Angeles, CA",
-                        Triple(40.712776, -74.005979, "Fast Food")
+                        "Hledan Road, Kamayut, Yangon",
+                        Triple(16.8283, 96.1294, "Fast Food")
                     ),
                     Triple(
                         Pair(
-                            "Dessert Delight",
+                            "Shwe Dessert House",
                             "https://static.vecteezy.com/system/resources/previews/032/160/853/large_2x/mouthwatering-dessert-heaven-a-tray-of-assorted-creamy-delights-ai-generated-photo.jpg"
                         ),
-                        "789 Pine St, Chicago, IL",
-                        Triple(40.712776, -74.005973, "Desserts")
+                        "Baho Road, Sanchaung, Yangon",
+                        Triple(16.8069, 96.1336, "Desserts")
                     ),
                     Triple(
                         Pair(
-                            "Healthy Bites",
+                            "Yangon Green Bowl",
                             "https://i2.wp.com/www.downshiftology.com/wp-content/uploads/2019/04/Cobb-Salad-main.jpg"
                         ),
-                        "321 Oak St, Miami, FL",
-                        Triple(40.712776, -74.005974, "Healthy Food")
+                        "Pyay Road, Sanchaung, Yangon",
+                        Triple(16.8090, 96.1352, "Healthy Food")
                     ),
                     Triple(
                         Pair(
-                            "Sushi Express",
+                            "Sakura Yangon",
                             "https://tb-static.uber.com/prod/image-proc/processed_images/87baf961b666795ea98160dc3b1d465c/fb86662148be855d931b37d6c1e5fcbe.jpeg"
                         ),
-                        "654 Maple St, Seattle, WA",
-                        Triple(40.712776, -74.005976, "Asian Cuisine")
+                        "Dhammazedi Road, Bahan, Yangon",
+                        Triple(16.8125, 96.1450, "Asian Cuisine")
                     ),
                     Triple(
                         Pair(
-                            "Coffee Corner",
+                            "Rangoon Tea and Coffee",
                             "https://insanelygoodrecipes.com/wp-content/uploads/2020/07/Cup-Of-Creamy-Coffee.png"
                         ),
-                        "987 Cedar St, San Francisco, CA",
-                        Triple(40.712776, -74.005977, "Beverages")
+                        "University Avenue Road, Kamayut, Yangon",
+                        Triple(16.8254, 96.1346, "Beverages")
                     )
                 )
 
@@ -359,7 +426,7 @@ fun Application.seedDatabase() {
 
                 val menuItems = listOf(
                     Pair(
-                        "Pizza Palace", listOf(
+                        "Yangon Pizza House", listOf(
                             Triple(
                                 "Margherita Pizza", "Classic cheese pizza with fresh basil",
                                 Pair(12.99, "https://foodbyjonister.com/wp-content/uploads/2020/01/pizzadough18.jpg")
@@ -420,7 +487,7 @@ fun Application.seedDatabase() {
                         )
                     ),
                     Pair(
-                        "Burger Haven", listOf(
+                        "Hledan Burger House", listOf(
                             Triple(
                                 "Classic Cheeseburger", "Juicy beef patty with cheddar cheese",
                                 Pair(
@@ -459,6 +526,49 @@ fun Application.seedDatabase() {
 
                 println("Menu items seeded for all restaurants.")
             }
+
+            // Localize only the original tutorial seed rows. User-created records are untouched.
+            listOf(
+                arrayOf("Pizza Palace", "Yangon Pizza House", "No. 12, Inya Road, Kamayut, Yangon", "16.8181", "96.1312"),
+                arrayOf("Burger Haven", "Hledan Burger House", "Hledan Road, Kamayut, Yangon", "16.8283", "96.1294"),
+                arrayOf("Dessert Delight", "Shwe Dessert House", "Baho Road, Sanchaung, Yangon", "16.8069", "96.1336"),
+                arrayOf("Healthy Bites", "Yangon Green Bowl", "Pyay Road, Sanchaung, Yangon", "16.8090", "96.1352"),
+                arrayOf("Sushi Express", "Sakura Yangon", "Dhammazedi Road, Bahan, Yangon", "16.8125", "96.1450"),
+                arrayOf("Coffee Corner", "Rangoon Tea and Coffee", "University Avenue Road, Kamayut, Yangon", "16.8254", "96.1346")
+            ).forEach { seed ->
+                RestaurantsTable.update({ RestaurantsTable.name eq seed[0] }) {
+                    it[name] = seed[1]
+                    it[address] = seed[2]
+                    it[latitude] = seed[3].toDouble()
+                    it[longitude] = seed[4].toDouble()
+                }
+            }
+            RiderLocationsTable.select { RiderLocationsTable.riderId eq riderId }
+                .filter { it[RiderLocationsTable.latitude] !in 9.0..29.0 || it[RiderLocationsTable.longitude] !in 92.0..102.0 }
+                .forEach { row ->
+                    RiderLocationsTable.update({ RiderLocationsTable.id eq row[RiderLocationsTable.id] }) {
+                        it[latitude] = 16.8210
+                        it[longitude] = 96.1320
+                    }
+                }
+
+            // Repair legacy/demo Yangon addresses that had missing or non-Myanmar coordinates.
+            AddressesTable.selectAll()
+                .filter { row ->
+                    val lat = row[AddressesTable.latitude]
+                    val lon = row[AddressesTable.longitude]
+                    row[AddressesTable.city].contains("Yangon", ignoreCase = true) &&
+                        (lat == null || lon == null || lat !in 16.45..17.20 || lon !in 95.75..96.55)
+                }
+                .forEachIndexed { index, row ->
+                    AddressesTable.update({ AddressesTable.id eq row[AddressesTable.id] }) {
+                        it[city] = "Yangon"
+                        it[state] = "Yangon Region"
+                        it[country] = "Myanmar"
+                        it[latitude] = 16.8176 + (index % 5) * 0.002
+                        it[longitude] = 96.1302 + (index % 4) * 0.002
+                    }
+                }
 
             seedPresentationDemo()
         }

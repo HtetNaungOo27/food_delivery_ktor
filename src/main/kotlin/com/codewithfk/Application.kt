@@ -8,6 +8,8 @@ import com.codewithfk.database.migrateDatabase
 import com.codewithfk.database.seedDatabase
 import com.codewithfk.routs.*
 import com.codewithfk.services.FirebaseService
+import com.codewithfk.services.NotificationService
+import com.codewithfk.services.AuthService
 import com.codewithfk.utils.respondError
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
@@ -24,6 +26,8 @@ import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.websocket.*
 import java.time.Duration
+import kotlinx.coroutines.*
+import java.util.UUID
 
 fun main(args: Array<String>) {
     io.ktor.server.netty.EngineMain.main(args)
@@ -41,7 +45,9 @@ fun Application.module() {
             realm = "ktor.io"
             verifier(JwtConfig.verifier)
             validate { credential ->
-                if (credential.payload.getClaim("userId").asString() != null) {
+                val userId = credential.payload.getClaim("userId").asString()
+                    ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+                if (userId != null && AuthService.isActive(userId)) {
                     JWTPrincipal(credential.payload)
                 } else null
             }
@@ -79,6 +85,16 @@ fun Application.module() {
     DatabaseFactory.init() // Initialize the database
     migrateDatabase()     // Run migrations if needed
     seedDatabase()        // Seed the database
+    val notificationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    environment.monitor.subscribe(ApplicationStarted) {
+        notificationScope.launch {
+            while (isActive) {
+                runCatching { NotificationService.flushPending() }
+                delay(10_000)
+            }
+        }
+    }
+    environment.monitor.subscribe(ApplicationStopped) { notificationScope.cancel() }
 
     install(WebSockets) {
         pingPeriod = Duration.ofSeconds(15)
@@ -88,6 +104,7 @@ fun Application.module() {
     }
 
     routing {
+        adminPublicRoutes()
         authRoutes()
         categoryRoutes()
         restaurantRoutes()
@@ -110,14 +127,17 @@ fun Application.module() {
             }
         }
         authenticate {
+            adminRoutes()
             orderRoutes()
             cartRoutes()
             addressRoutes()
             paymentRoutes()
             notificationRoutes()
             customerProfileRoutes()
+            accountRoutes()
+            payoutRoutes()
             restaurantOwnerRoutes()
+            trackingRoutes()
         }
-        trackingRoutes()
     }
 }

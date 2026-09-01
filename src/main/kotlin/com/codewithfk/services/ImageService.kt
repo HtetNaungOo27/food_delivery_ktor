@@ -17,7 +17,7 @@ import kotlin.math.roundToInt
 
 object ImageService {
     private val client = HttpClient(CIO)
-    private const val STORAGE_URL = "${SupabaseConfig.SUPABASE_URL}/storage/v1/object"
+    private val STORAGE_URL = "${SupabaseConfig.SUPABASE_URL}/storage/v1/object"
     private const val TARGET_SIZE_KB = 100
     private const val MAX_DIMENSION = 1024
 
@@ -25,7 +25,7 @@ object ImageService {
         try {
             val imageData = multipart.readAllParts().first { it is PartData.FileItem }
             val originalBytes = (imageData as PartData.FileItem).streamProvider().readBytes()
-            
+
             // Compress image
             val compressedBytes = compressImage(originalBytes)
 
@@ -57,13 +57,13 @@ object ImageService {
     private fun compressImage(imageBytes: ByteArray): ByteArray {
         val inputStream = ByteArrayInputStream(imageBytes)
         val originalImage = ImageIO.read(inputStream)
-        
+
         // Scale image if needed
         val scaledImage = if (originalImage.width > MAX_DIMENSION || originalImage.height > MAX_DIMENSION) {
             val scale = MAX_DIMENSION.toFloat() / maxOf(originalImage.width, originalImage.height)
             val newWidth = (originalImage.width * scale).roundToInt()
             val newHeight = (originalImage.height * scale).roundToInt()
-            
+
             val scaledImage = BufferedImage(newWidth, newHeight, BufferedImage.TYPE_INT_RGB)
             val g2d = scaledImage.createGraphics()
             g2d.drawImage(originalImage, 0, 0, newWidth, newHeight, null)
@@ -75,20 +75,20 @@ object ImageService {
         var quality = 1.0f
         var outputBytes: ByteArray
         val outputStream = ByteArrayOutputStream()
-        
+
         do {
             outputStream.reset()
             val iter = ImageIO.getImageWritersByFormatName("jpeg").next()
             val writeParam = iter.defaultWriteParam
             writeParam.compressionMode = javax.imageio.ImageWriteParam.MODE_EXPLICIT
             writeParam.compressionQuality = quality
-            
+
             val ios = ImageIO.createImageOutputStream(outputStream)
             iter.output = ios
             iter.write(null, javax.imageio.IIOImage(scaledImage, null, null), writeParam)
             iter.dispose()
             ios.close()
-            
+
             outputBytes = outputStream.toByteArray()
             quality -= 0.1f
         } while (outputBytes.size > TARGET_SIZE_KB * 1024 && quality > 0.1f)
@@ -99,7 +99,7 @@ object ImageService {
     suspend fun deleteImage(imageUrl: String) {
         try {
             val fileName = imageUrl.substringAfterLast("/${STORAGE_BUCKET}/")
-            
+
             val response = client.delete("$STORAGE_URL/${SupabaseConfig.STORAGE_BUCKET}/$fileName") {
                 headers {
                     append("apikey", SupabaseConfig.SUPABASE_KEY)
@@ -113,4 +113,4 @@ object ImageService {
             throw IllegalStateException("Failed to delete image: ${e.message}")
         }
     }
-} 
+}

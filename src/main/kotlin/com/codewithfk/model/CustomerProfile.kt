@@ -13,3 +13,9 @@ data class CustomerProfile(
     val bitePoints: Int,
     val savedAddresses: Int
 )
+
+@Serializable
+data class UpdateCustomerProfileRequest(val name: String)
+
+@Serializable data class FavoriteUpdateRequest(val favorite: Boolean)
+@Serializable data class FavoriteIdsResponse(val ids: List<String>)

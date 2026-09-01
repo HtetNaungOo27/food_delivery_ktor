@@ -9,5 +9,6 @@ data class CartItem(
     val restaurantId: String,
     val menuItemId: MenuItem?,
     val quantity: Int,
-    val addedAt: String
+    val addedAt: String,
+    val selectedModifiers: List<SelectedModifier> = emptyList()
 )

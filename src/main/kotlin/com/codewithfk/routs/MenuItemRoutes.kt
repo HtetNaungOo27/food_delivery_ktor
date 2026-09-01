@@ -26,43 +26,5 @@ fun Route.menuItemRoutes() {
             call.respond(mapOf("foodItems" to menuItems))
         }
 
-        /**
-         * Add a new menu item
-         */
-        post {
-            val restaurantId = call.parameters["id"] ?: return@post call.respondError(
-                "Restaurant ID is required.", HttpStatusCode.BadRequest
-            )
-            val menuItem = call.receive<MenuItem>().copy(restaurantId = restaurantId)
-            val itemId = MenuItemService.addMenuItem(menuItem)
-            call.respond(mapOf("id" to itemId.toString(), "message" to "Menu item added successfully"))
-        }
-    }
-
-    route("/menu/{itemId}") {
-        /**
-         * Update a menu item
-         */
-        patch {
-            val itemId = call.parameters["itemId"] ?: return@patch call.respondError(
-                "Menu item ID is required.", HttpStatusCode.BadRequest
-            )
-            val updatedFields = call.receive<Map<String, Any?>>()
-            val success = MenuItemService.updateMenuItem(UUID.fromString(itemId), updatedFields)
-            if (success) call.respond(mapOf("message" to "Menu item updated successfully"))
-            else call.respondError("Menu item not found", HttpStatusCode.NotFound)
-        }
-
-        /**
-         * Delete a menu item
-         */
-        delete {
-            val itemId = call.parameters["itemId"] ?: return@delete call.respondError(
-                "Menu item ID is required.", HttpStatusCode.BadRequest
-            )
-            val success = MenuItemService.deleteMenuItem(UUID.fromString(itemId))
-            if (success) call.respond(mapOf("message" to "Menu item deleted successfully"))
-            else call.respondError("Menu item not found", HttpStatusCode.NotFound)
-        }
     }
 }
